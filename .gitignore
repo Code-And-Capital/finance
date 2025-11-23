@@ -9,6 +9,8 @@ __pycache__/
 # databases
 *.sqlite
 *_youtube.ipynb
+.DS_Store
+.vscode/
 
 # Distribution / packaging
 .Python
