@@ -1,0 +1,10 @@
+ipykernel
+pandas
+matplotlib
+yfinance
+bs4
+selenium
+openpyxl
+xlrd
+black
+bt
