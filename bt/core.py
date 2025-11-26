@@ -12,11 +12,14 @@ PAR = 100.0
 TOL = 1e-16
 
 
-def is_zero(x):
+def run_always(f):
     """
-    Test for zero that is robust against floating point precision errors
+    Run always decorator to be used with Algo
+    to ensure stack runs the decorated Algo
+    on each pass, regardless of failures in the stack.
     """
-    return abs(x) < TOL
+    f.run_always = True
+    return f
 
 
 class Node(object):
