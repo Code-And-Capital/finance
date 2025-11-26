@@ -9,6 +9,7 @@ Modules:
 ---------
 - combinators.py
 - control.py
+- close_positions.py
 - run_once.py
 - run_period.py
 - run_on_date.py
@@ -23,6 +24,9 @@ from .control import Require
 
 # combinators
 from .combinators import Or, Not
+
+# closer
+from .close_positions import ClosePositionsAfterDates
 
 # Base / simple algos
 from .run_once import RunOnce
@@ -49,6 +53,7 @@ __all__ = [
     "Require",
     "Or",
     "Not",
+    "ClosePositionsAfterDates",
     "RunOnce",
     "RunPeriod",
     "RunDaily",

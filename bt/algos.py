@@ -1,12 +1,3 @@
-"""
-A collection of Algos used to create Strategy logic.
-"""
-
-import abc
-import random
-import re
-import math
-
 import numpy as np
 import pandas as pd
 import sklearn.covariance
@@ -23,43 +14,6 @@ def run_always(f):
     """
     f.run_always = True
     return f
-
-
-class SetStat(Algo):
-    """
-    Sets temp['stat'] for use by downstream algos (such as SelectN).
-
-    Args:
-        * stat (str|DataFrame): A dataframe of the same dimension as target.universe
-          If a string is passed, frame is accessed using target.get_data
-          This is the preferred way of using the algo.
-        * lag (DateOffset): Lag interval. The stat used today is the one calculated
-          at today - lag
-    Sets:
-        * stat
-    """
-
-    def __init__(self, stat, lag=pd.DateOffset(days=0)):
-        self.lag = lag
-        if isinstance(stat, pd.DataFrame):
-            self.stat_name = None
-            self.stat = stat
-        else:
-            self.stat_name = stat
-            self.stat = None
-
-    def __call__(self, target):
-        if self.stat_name is None:
-            stat = self.stat
-        else:
-            stat = target.get_data(self.stat_name)
-
-        t0 = target.now - self.lag
-        if t0 not in stat.index:
-            return False
-
-        target.temp["stat"] = stat.loc[t0]
-        return True
 
 
 class PTE_Rebalance(Algo):
@@ -148,74 +102,6 @@ class PTE_Rebalance(Algo):
             return True
         else:
             return False
-
-        return True
-
-
-class CapitalFlow(Algo):
-    """
-    Used to model capital flows. Flows can either be inflows or outflows.
-
-    This Algo can be used to model capital flows. For example, a pension
-    fund might have inflows every month or year due to contributions. This
-    Algo will affect the capital of the target node without affecting returns
-    for the node.
-
-    Since this is modeled as an adjustment, the capital will remain in the
-    strategy until a re-allocation/rebalancement is made.
-
-    Args:
-        * amount (float): Amount of adjustment
-
-    """
-
-    def __init__(self, amount):
-        """
-        CapitalFlow constructor.
-
-        Args:
-            * amount (float): Amount to adjust by
-        """
-        super(CapitalFlow, self).__init__()
-        self.amount = float(amount)
-
-    def __call__(self, target):
-        target.adjust(self.amount)
-        return True
-
-
-class CloseDead(Algo):
-    """
-    Closes all positions for which prices are equal to zero (we assume
-    that these stocks are dead) and removes them from temp['weights'] if
-    they enter it by any chance.
-    To be called before Rebalance().
-
-    In a normal workflow it is not needed, as those securities will not
-    be selected by SelectAll(include_no_data=False) or similar method, and
-    Rebalance() closes positions that are not in temp['weights'] anyway.
-    However in case when for some reasons include_no_data=False could not
-    be used or some modified weighting method is used, CloseDead() will
-    allow to avoid errors.
-
-    Requires:
-        * weights
-
-    """
-
-    def __init__(self):
-        super(CloseDead, self).__init__()
-
-    def __call__(self, target):
-        if "weights" not in target.temp:
-            return True
-
-        targets = target.temp["weights"]
-        for c in target.children:
-            if target.universe[c].loc[target.now] <= 0:
-                target.close(c)
-                if c in targets:
-                    del targets[c]
 
         return True
 
@@ -360,62 +246,6 @@ class RebalanceOverTime(Algo):
             if self._days_left == 0:
                 self._days_left = None
                 self._weights = None
-
-        return True
-
-
-class ClosePositionsAfterDates(Algo):
-    """
-    Close positions on securities after a given date.
-    This can be used to make sure positions on matured/redeemed securities are
-    closed. It can also be used as part of a strategy to, i.e. make sure
-    the strategy doesn't hold any securities with time to maturity less than a year
-
-    Note that if placed after a RunPeriod algo in the stack, that the actual
-    closing of positions will occur after the provided date. For this to work,
-    the "price" of the security (even if matured) must exist up until that date.
-    Alternatively, run this with the @run_always decorator to close the positions
-    immediately.
-
-    Also note that this algo does not operate using temp['weights'] and Rebalance.
-    This is so that hedges (which are excluded from that workflow) will also be
-    closed as necessary.
-
-    Args:
-        * close_dates (str): the name of a dataframe indexed by security name, with columns
-          "date": the date after which we want to close the position ASAP
-
-    Sets:
-        * target.perm['closed'] : to keep track of which securities have already closed
-    """
-
-    def __init__(self, close_dates):
-        super(ClosePositionsAfterDates, self).__init__()
-        self.close_dates = close_dates
-
-    def __call__(self, target):
-        if "closed" not in target.perm:
-            target.perm["closed"] = set()
-        close_dates = target.get_data(self.close_dates)["date"]
-        # Find securities that are candidate for closing
-        sec_names = [
-            sec_name
-            for sec_name, sec in target.children.items()
-            if isinstance(sec, SecurityBase)
-            and sec_name in close_dates.index
-            and sec_name not in target.perm["closed"]
-        ]
-
-        # Check whether closed
-        is_closed = close_dates.loc[sec_names] <= target.now
-
-        # Close position
-        for sec_name in is_closed[is_closed].index:
-            target.close(sec_name, update=False)
-            target.perm["closed"].add(sec_name)
-
-        # Now update
-        target.root.update(target.now)
 
         return True
 
@@ -586,63 +416,4 @@ class HedgeRisks(Algo):
             if np.isnan(notional) and self.throw_nan:
                 raise ValueError("%s has nan hedge notional" % security)
             target.transact(notional, security)
-        return True
-
-
-class Margin(Algo):
-    """
-    Margin allows us to model margin lending using bt. It will periodically charge the strategy
-    a set interest rate and will liquidate its positions if it falls below a specified maintance
-    requirement
-
-    Args:
-        * rate (float): the margin interest rate. i.e: 0.05 -> 5%
-        * requirement (float): the maintenance requirement. The algorithm will liquidate the portfolio if the
-        equity in falls below this percentage.
-    """
-
-    def __init__(self, rate, requirement):
-        super().__init__(Margin.__name__)
-        self.rate = rate
-        self.requirement = requirement
-        self._last_date = None
-
-    def _daily_rate(self):
-        return math.pow(1 + self.rate, 1 / 365.25) - 1
-
-    def __call__(self, target):
-        if self._last_date is None:
-            self._last_date = target.now
-            return True
-
-        # how many days since we calculated interest
-        diff = target.now - self._last_date
-
-        # the margin amount is the difference
-        margin = -target.capital
-
-        if margin > 0:
-            # get the total value of this portfolio
-            port_val = 0
-            for child in target.children.values():
-                port_val += child.value
-
-            # calculate the interest on the margin
-            f = math.pow(1 + self._daily_rate(), diff.days) - 1
-            fee = margin * f
-
-            # charge it
-            target.adjust(-fee, fee=fee)
-
-            equity_ratio = target.value / port_val
-            # check and see if we are below our margin requirement
-            if equity_ratio < self.requirement:
-                max_value = target.value * (1 / self.requirement)
-
-                # liquidate
-                deficit = max_value - port_val
-                target.allocate(deficit / 2)
-
-        # update our date
-        self._last_date = target.now
         return True
