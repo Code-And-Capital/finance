@@ -1,4 +1,4 @@
-from bt.core import Algo
+from bt.core.algo_base import Algo
 import pandas as pd
 from typing import Union
 

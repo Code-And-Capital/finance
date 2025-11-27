@@ -1,4 +1,5 @@
-from bt.core import Algo, SecurityBase
+from bt.core.algo_base import Algo
+from bt.core import SecurityBase
 
 
 class ClosePositionsAfterDates(Algo):

@@ -1,6 +1,6 @@
 import random
 from typing import List, Optional
-from bt.core import AlgoStack
+from bt.core.algo_base import AlgoStack
 
 import random
 from typing import List, Optional

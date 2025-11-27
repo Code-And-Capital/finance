@@ -1,4 +1,4 @@
-from bt.core import Algo
+from bt.core.algo_base import Algo
 from typing import Optional
 
 

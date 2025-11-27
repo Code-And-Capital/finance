@@ -1,7 +1,7 @@
 from typing import List, Union, Optional
 import numpy as np
 import pandas as pd
-from bt.core import Algo, StrategyBase
+from bt.core.algo_base import Algo, StrategyBase
 
 
 class HedgeRisks(Algo):

@@ -1,4 +1,4 @@
-from bt.core import AlgoStack
+from bt.core.algo_base import AlgoStack
 from bt.algos.selection.rank import SelectN
 from bt.algos.stats.returns import StatTotalReturn
 import pandas as pd

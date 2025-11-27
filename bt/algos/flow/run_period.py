@@ -1,6 +1,6 @@
 import abc
 import pandas as pd
-from bt.core import Algo
+from bt.core.algo_base import Algo
 from typing import Any
 
 

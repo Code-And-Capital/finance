@@ -124,5 +124,23 @@ def download_holdings(fund_name: str, url: str, download_folder: str = "."):
         ]
     ]
 
+    df = (
+        df.groupby(["DATE", "INDEX", "TICKER"])
+        .agg(
+            {
+                "NAME": "first",
+                "MARKET_VALUE": "sum",
+                "WEIGHT": "sum",
+                "QUANTITY": "sum",
+                "PRICE": "sum",
+                "LOCATION": "first",
+                "EXCHANGE": "first",
+                "CURRENCY": "first",
+                "FX_RATE": "first",
+            }
+        )
+        .reset_index()
+    )
+
     os.remove(file_path)
     return df

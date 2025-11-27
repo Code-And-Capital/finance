@@ -21,4 +21,5 @@ ticker_mapping = {
     "MOGA": "MOG-A",
     "BFA": "BF-A",
     "CWENA": "CWEN-A",
+    "GLIBR": "GLIBK",
 }

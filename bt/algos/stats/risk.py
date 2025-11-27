@@ -1,4 +1,4 @@
-from bt.core import Algo, SecurityBase
+from bt.core.algo_base import Algo, SecurityBase
 import pandas as pd
 import numpy as np
 from utils.math_utils import is_zero

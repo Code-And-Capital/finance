@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import List, Union, Any
-from bt.core import Algo
+from bt.core.algo_base import Algo
 
 
 class RunOnDate(Algo):

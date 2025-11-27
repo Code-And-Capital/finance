@@ -109,3 +109,49 @@ def read_sql_table(
             pass
 
     return df
+
+
+def delete_sql_rows(
+    database_name: str, table_name: str = None, where_clause: str = None
+):
+    """
+    Deletes rows from an SQLite database table based on a condition.
+
+    You can either:
+    - Provide a table name and a WHERE clause to delete specific rows.
+    Args:
+        database_name (str): The name of the SQLite database (without extension, e.g., 'holdings').
+        table_name (str, optional): The name of the table from which to delete rows.
+        where_clause (str, optional): The WHERE clause specifying which rows to delete (ignored if `query` is used).
+
+    Raises:
+        ValueError: If no table_name + where_clause is provided.
+    """
+    # Construct the absolute path to the database file
+    database_loc = os.path.join(
+        os.path.abspath(
+            os.path.join(os.path.dirname(os.path.realpath("__file__")), "..")
+        ),
+        "Data",
+        f"{database_name}.sqlite",
+    )
+
+    # Build the DELETE query if not provided explicitly
+    if table_name and where_clause:
+        query = f"DELETE FROM {table_name} WHERE {where_clause}"
+    elif not table_name and not where_clause:
+        raise ValueError(
+            "You must provide either a custom query or a table_name with a where_clause."
+        )
+
+    # Connect to the SQLite database
+    conn = sqlite3.connect(database_loc)
+    cursor = conn.cursor()
+
+    try:
+        # Execute the DELETE query
+        cursor.execute(query)
+        conn.commit()  # Commit changes
+    finally:
+        # Ensure the connection is closed even if an error occurs
+        conn.close()
