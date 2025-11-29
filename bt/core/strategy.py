@@ -217,7 +217,6 @@ class StrategyBase(Node):
         self._positions = df.fillna(0.0)
         return self._positions
 
-
     def setup(self, universe: pd.DataFrame, **kwargs) -> None:
         """
         Initialize the strategy using the provided universe.
@@ -238,7 +237,9 @@ class StrategyBase(Node):
         self._setup_kwargs = kwargs.copy()
 
         # fixed income guard: cannot nest fixed-income beneath non-fixed-income
-        if getattr(self, "fixed_income", False) and not getattr(self.parent, "fixed_income", False):
+        if getattr(self, "fixed_income", False) and not getattr(
+            self.parent, "fixed_income", False
+        ):
             raise ValueError(
                 "Cannot have fixed income strategy child (%s) of non-fixed income strategy (%s)"
                 % (self.name, self.parent.name)
@@ -264,7 +265,9 @@ class StrategyBase(Node):
 
         # If original children were provided, restrict universe to those tickers
         if getattr(self, "_original_children_are_present", False):
-            valid_filter = list(set(universe.columns).intersection(self._universe_tickers))
+            valid_filter = list(
+                set(universe.columns).intersection(self._universe_tickers)
+            )
             funiverse = universe[valid_filter].copy()
 
             # If strategy children exist, add their columns to funiverse
@@ -419,12 +422,21 @@ class StrategyBase(Node):
 
         # Bankruptcy check (only apply to root)
         if self.root == self:
-            if (val < 0) and (not self.bankrupt) and (not getattr(self, "fixed_income", False)) and (not is_zero(val)):
+            if (
+                (val < 0)
+                and (not self.bankrupt)
+                and (not getattr(self, "fixed_income", False))
+                and (not is_zero(val))
+            ):
                 self.bankrupt = True
                 self.flatten()
 
         # Only update series when something meaningful changed or a new time point occurred
-        if newpt or (not is_zero(self._value - val)) or (not is_zero(self._notl_value - notl_val)):
+        if (
+            newpt
+            or (not is_zero(self._value - val))
+            or (not is_zero(self._notl_value - notl_val))
+        ):
             self._value = val
             self._values.values[inow] = val
 
@@ -463,7 +475,13 @@ class StrategyBase(Node):
                     else:
                         raise ZeroDivisionError(
                             "Could not update %s on %s. Last value was %s and net flows were %s. Current value is %s."
-                            % (self.name, self.now, self._last_value, self._net_flows, self._value)
+                            % (
+                                self.name,
+                                self.now,
+                                self._last_value,
+                                self._net_flows,
+                                self._value,
+                            )
                         )
                 self._price = self._last_price * (1.0 + ret)
                 self._prices.values[inow] = self._price
@@ -475,7 +493,11 @@ class StrategyBase(Node):
                     continue
 
                 if getattr(self, "fixed_income", False):
-                    c._weight = (c.notional_value / notl_val) if (not is_zero(notl_val)) else 0.0
+                    c._weight = (
+                        (c.notional_value / notl_val)
+                        if (not is_zero(notl_val))
+                        else 0.0
+                    )
                 else:
                     c._weight = (c.value / val) if (not is_zero(val)) else 0.0
 
@@ -499,7 +521,9 @@ class StrategyBase(Node):
             self._price = self._paper.price
             self._prices.values[inow] = self._price
 
-    def adjust(self, amount: float, update: bool = True, flow: bool = True, fee: float = 0.0) -> None:
+    def adjust(
+        self, amount: float, update: bool = True, flow: bool = True, fee: float = 0.0
+    ) -> None:
         """
         Adjust capital for this strategy (e.g., deposit or withdraw cash).
 
@@ -595,7 +619,9 @@ class StrategyBase(Node):
         if update:
             self.root.stale = True
 
-    def rebalance(self, weight: float, child: str, base: float = np.nan, update: bool = True) -> None:
+    def rebalance(
+        self, weight: float, child: str, base: float = np.nan, update: bool = True
+    ) -> None:
         """
         Rebalance a specific child's target weight.
 
@@ -747,11 +773,15 @@ class StrategyBase(Node):
 
         # Adjust prices for bid/offer paid if set
         if getattr(self, "_bidoffer_set", False):
-            bidoffer = pd.DataFrame({x.name: x.bidoffers_paid for x in self.securities}).unstack()
+            bidoffer = pd.DataFrame(
+                {x.name: x.bidoffers_paid for x in self.securities}
+            ).unstack()
             # Avoid division by zero by aligning indices; trades is non-zero here
             prc = prc + (bidoffer / trades)
 
-        res = pd.DataFrame({"price": prc, "quantity": trades}).dropna(subset=["quantity"])
+        res = pd.DataFrame({"price": prc, "quantity": trades}).dropna(
+            subset=["quantity"]
+        )
         res.index.names = ["Security", "Date"]
         res = res.swaplevel().sort_index()
         return res
@@ -783,24 +813,24 @@ class StrategyBase(Node):
 
 class Strategy(StrategyBase):
     """
-    A Strategy represents a composite algorithmic node that manages capital 
-    allocation logic by executing a stack of Algos and optionally delegating 
+    A Strategy represents a composite algorithmic node that manages capital
+    allocation logic by executing a stack of Algos and optionally delegating
     execution to child Strategy nodes.
 
     This class extends :class:`StrategyBase` by incorporating an :class:`AlgoStack`.
-    A Strategy is constructed by passing a list of Algos, which are wrapped into 
+    A Strategy is constructed by passing a list of Algos, which are wrapped into
     an AlgoStack and executed in sequence whenever ``run()`` is called.
 
-    Two shared data containers are exposed to allow information exchange between 
+    Two shared data containers are exposed to allow information exchange between
     Algos during execution:
 
-    - ``temp``: Temporary, per-run data. Cleared at the start of each ``run()`` 
-      call. Use this for intermediate or transient values needed only within 
+    - ``temp``: Temporary, per-run data. Cleared at the start of each ``run()``
+      call. Use this for intermediate or transient values needed only within
       a single pass.
-    - ``perm``: Persistent, cross-run state that is preserved across multiple 
+    - ``perm``: Persistent, cross-run state that is preserved across multiple
       executions. Use this for values that must flow between Algos over time.
 
-    After running its Algo stack, the Strategy will recursively run its child 
+    After running its Algo stack, the Strategy will recursively run its child
     Strategy nodes (if any), allowing for hierarchical strategy design.
 
     Parameters
@@ -808,12 +838,12 @@ class Strategy(StrategyBase):
     name : str
         The name of the strategy.
     algos : list of Algo, optional
-        A list of Algo instances that define the strategy's logic. If omitted, an 
+        A list of Algo instances that define the strategy's logic. If omitted, an
         empty stack is used.
     children : dict or list, optional
         Child nodes of this Strategy. Accepts either:
         - A dict mapping names to Node instances.
-        - A list of child nodes or names (string names result in lazy creation 
+        - A list of child nodes or names (string names result in lazy creation
           of Node instances when accessed).
     parent : Node, optional
         The parent node in a larger strategy tree.
@@ -838,7 +868,7 @@ class Strategy(StrategyBase):
 
     def run(self):
         """
-        Execute the strategy by running all Algos in the AlgoStack, then 
+        Execute the strategy by running all Algos in the AlgoStack, then
         recursively executing all child nodes.
 
         The process is:

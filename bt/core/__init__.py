@@ -23,7 +23,14 @@ from .algo_base import Algo, AlgoStack
 # ---------------------------------------------------------------------
 # Security / Asset Representation
 # ---------------------------------------------------------------------
-from .security import Security, SecurityBase, FixedIncomeSecurity, HedgeSecurity, CouponPayingSecurity,CouponPayingHedgeSecurity
+from .security import (
+    Security,
+    SecurityBase,
+    FixedIncomeSecurity,
+    HedgeSecurity,
+    CouponPayingSecurity,
+    CouponPayingHedgeSecurity,
+)
 
 # ---------------------------------------------------------------------
 # Public API
@@ -39,5 +46,5 @@ __all__ = [
     "FixedIncomeSecurity",
     "HedgeSecurity",
     "CouponPayingSecurity",
-    "CouponPayingHedgeSecurity"
+    "CouponPayingHedgeSecurity",
 ]
