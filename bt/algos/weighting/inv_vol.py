@@ -141,6 +141,6 @@ class WeighInvVol(Algo):
         inv_vol_weights = self.calc_inv_vol_weights(returns).dropna()
 
         # Save final weights
-        target.temp["weights"] = inv_vol_weights
+        target.temp["weights"] = inv_vol_weights.to_dict()
 
         return True

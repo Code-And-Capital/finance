@@ -7,4 +7,3 @@ selenium
 openpyxl
 xlrd
 black
-bt
