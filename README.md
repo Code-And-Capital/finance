@@ -16,7 +16,7 @@ We publish regular videos on:
 * Backtesting frameworks
 * Live coding sessions
 
-👉 **Subscribe here:** [CodeCapital YouTube Channel](https://www.youtube.com/@CodeCapital1)
+👉 **Subscribe here:** [Code & Capital YouTube Channel](https://www.youtube.com/@CodeCapital1)
 
 
 ## 📚 Notebook Examples

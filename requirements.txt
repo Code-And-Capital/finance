@@ -7,3 +7,6 @@ selenium
 openpyxl
 xlrd
 black
+plotly
+nbformat
+ffn
