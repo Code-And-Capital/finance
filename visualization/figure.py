@@ -83,11 +83,31 @@ class Figure:
             chart = entry["chart"]
 
             raw_type = getattr(chart, "default_type", chart.__class__.__name__.lower())
-            trace_type = (
-                "xy"
-                if raw_type in ("line", "area", "scatter", "bar", "histogram", "ohlc")
-                else raw_type
-            )
+
+            # Normalize chart type → subplot type
+            xy_types = {
+                "line",
+                "area",
+                "scatter",
+                "bar",
+                "histogram",
+                "ohlc",
+                "candlestick",
+                "box",
+                "boxplot",
+                "violin",
+                "heatmap",
+            }
+
+            domain_types = {"pie", "sunburst", "treemap", "funnelarea", "indicator"}
+
+            if raw_type in xy_types:
+                trace_type = "xy"
+            elif raw_type in domain_types:
+                trace_type = "domain"
+            else:
+                # fallback: assume Cartesian unless truly unknown
+                trace_type = "xy"
 
             # Bounds check
             if row + rs > self.rows or col + cs > self.cols:
@@ -117,6 +137,9 @@ class Figure:
         Assign consistent colors for traces and deduplicate legends globally.
         Candlestick traces are left with default colors.
         """
+        if isinstance(trace, go.Indicator):
+            return trace
+
         # Candlestick — keep defaults
         if isinstance(trace, go.Candlestick):
             name = getattr(trace, "name", None)

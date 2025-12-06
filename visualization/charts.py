@@ -938,3 +938,312 @@ class Heatmap(Chart):
         )
         self.traces.append(trace)
         return self
+
+
+class Boxplot(Chart):
+    """Boxplot chart builder."""
+
+    def create(
+        self,
+        y: Union[str, Sequence[str]],
+        x: Optional[Union[str, Sequence, None]] = None,
+        name: Optional[str] = None,
+        boxmean: Union[str, bool, None] = None,
+        orientation: str = "v",
+        boxpoints: Union[bool, str] = False,
+        jitter: float = 0.0,
+    ) -> "Boxplot":
+        """
+        Create one or multiple Box traces.
+
+        Parameters
+        ----------
+        y : str or sequence[str]
+            Column name(s) used for box values. One trace is created per column.
+        x : str or sequence or None
+            Optional grouping/category values. If None, boxes are not grouped.
+        name : str, optional
+            Base trace name. If multiple y columns are provided, the column
+            name is appended automatically.
+        boxmean : str or bool, optional
+            Whether to display the mean marker:
+            - True → show mean
+            - "sd" → show mean + standard deviation
+            - False/None → do not show mean
+        orientation : str
+            "v" for vertical (default), "h" for horizontal boxplots.
+        boxpoints : bool or str
+            Show underlying data points. Valid Plotly values:
+            - False (default) → hide points
+            - "all", "outliers", "suspectedoutliers"
+        jitter : float
+            Jitter applied to boxpoints to reduce overlap.
+
+        Returns
+        -------
+        Boxplot
+            self
+        """
+        y_cols = ensure_list(y)
+        self._ensure_columns_exist(y_cols)
+
+        if x is None:
+            x_vals = None
+        else:
+            x_vals = self._coerce_x_values(x)
+
+        for col in y_cols:
+            trace_name = name or str(col)
+            if name and len(y_cols) > 1:
+                trace_name = f"{name} - {col}"
+
+            trace = go.Box(
+                y=self.data[col] if orientation == "v" else None,
+                x=x_vals if orientation == "v" else self.data[col],
+                name=trace_name,
+                marker={"color": self._next_color()},
+                boxmean=boxmean,
+                orientation=orientation,
+                meta=self._meta_for(y_col=col),
+                boxpoints=boxpoints,
+                jitter=jitter,
+            )
+            self.traces.append(trace)
+
+        return self
+
+
+class Indicator(Chart):
+    """Indicator chart builder."""
+
+    def create(
+        self,
+        value: Union[str, float, int],
+        title: Optional[str] = None,
+        mode: str = "number",
+        delta_reference: Optional[Union[str, float, int]] = None,
+        number_format: Optional[str] = None,
+        gauge: bool = False,
+        gauge_shape: Optional[str] = None,
+        gauge_range: Optional[Sequence[float]] = None,
+        gauge_bar_color: Optional[str] = None,
+        gauge_steps: Optional[List[dict]] = None,
+        threshold_value: Optional[float] = None,
+        domain: Optional[dict] = None,
+    ) -> "Indicator":
+        """
+        Create a Plotly Indicator trace.
+
+        Parameters
+        ----------
+        value : str or number
+            Column name or static numeric value displayed by the indicator.
+        title : str, optional
+            Text displayed under the indicator.
+        mode : str
+            Indicator display mode. Valid combinations:
+            "number", "delta", "gauge", "number+delta",
+            "gauge+number", "gauge+number+delta".
+        delta_reference : str or number, optional
+            Reference value for computing the delta. Required when using a mode
+            that includes "delta".
+        number_format : str, optional
+            Numeric formatting string (e.g. ".2f").
+        gauge : bool
+            If True, forces inclusion of gauge settings. The mode must support a gauge.
+        gauge_shape : str, optional
+            Gauge shape ("angular", "bullet", etc.).
+        gauge_range : sequence[float], optional
+            [min, max] axis range for the gauge.
+        gauge_bar_color : str, optional
+            Fill color of the gauge bar.
+        gauge_steps : list[dict], optional
+            Gauge steps, each containing {"range": [...], "color": ...}.
+        threshold_value : float, optional
+            Value at which to draw a gauge threshold line.
+        domain : dict, optional
+            Plotly domain definition {"x": [...], "y": [...]}.
+
+        Returns
+        -------
+        Indicator
+            self
+        """
+        # resolve value
+        if isinstance(value, str):
+            if value not in self.data.columns:
+                raise KeyError(f"Column '{value}' not in dataframe.")
+            val = float(self.data[value].iloc[-1])
+        else:
+            val = float(value)
+
+        # resolve delta reference
+        delta_cfg = None
+        if "delta" in mode:
+            if delta_reference is None:
+                raise ValueError("delta_reference required when using delta mode.")
+
+            if isinstance(delta_reference, str):
+                if delta_reference not in self.data.columns:
+                    raise KeyError(f"Column '{delta_reference}' not in dataframe.")
+                delta_ref_val = float(self.data[delta_reference].iloc[-1])
+            else:
+                delta_ref_val = float(delta_reference)
+
+            delta_cfg = {"reference": delta_ref_val}
+
+        # gauge configuration
+        gauge_cfg = None
+        if gauge or "gauge" in mode:
+            gauge_cfg = {"axis": {}}
+            if gauge_range is not None:
+                gauge_cfg["axis"]["range"] = list(gauge_range)
+            if gauge_bar_color is not None:
+                gauge_cfg["bar"] = {"color": gauge_bar_color}
+            if gauge_steps is not None:
+                gauge_cfg["steps"] = gauge_steps
+            if gauge_shape is not None:
+                gauge_cfg["shape"] = gauge_shape
+            if threshold_value is not None:
+                gauge_cfg["threshold"] = {
+                    "line": {"color": "red", "width": 4},
+                    "thickness": 0.75,
+                    "value": threshold_value,
+                }
+
+        # number formatting
+        number_cfg = None
+        if number_format:
+            number_cfg = {"valueformat": number_format}
+
+        trace = go.Indicator(
+            mode=mode,
+            value=val,
+            delta=delta_cfg,
+            number=number_cfg,
+            gauge=gauge_cfg,
+            title={"text": title} if title else None,
+            domain=domain,
+            meta=self._meta_for(value_source=value),
+        )
+
+        self.traces.append(trace)
+        return self
+
+
+class Waterfall(Chart):
+    """Waterfall chart builder."""
+
+    def create(
+        self,
+        x: Sequence[Union[str, float, int]],
+        y: Sequence[Union[str, float, int]],
+        name: str = "Waterfall",
+        increasing_color: str = "#2ecc71",
+        decreasing_color: str = "#e74c3c",
+        total_color: str = "#3498db",
+        connector_width: int = 1,
+        title: Optional[str] = None,
+        text: Union[bool, Sequence[str], str, None] = None,
+        textposition: str = "outside",
+        y_format: Optional[str] = None,
+    ) -> "Waterfall":
+        """
+        Create a Waterfall trace.
+
+        Parameters
+        ----------
+        x : sequence
+            Labels for each step. Any label equal to "total" (case-insensitive)
+            is treated as a total bar.
+        y : sequence
+            Numeric values or column names. Totals may be given as "total".
+        name : str
+            Trace name.
+        increasing_color : str
+            Fill color for positive steps.
+        decreasing_color : str
+            Fill color for negative steps.
+        total_color : str
+            Fill color for total steps.
+        connector_width : int
+            Width of connectors between bars.
+        title : str, optional
+            Chart title.
+        text : bool, sequence[str], str, or None
+            Controls per-bar text:
+            - True → show numeric values
+            - list[str] → custom labels (must match length of x)
+            - "percent" → display % of total
+            - None → no labels
+        textposition : str
+            Plotly text position (default "outside").
+        y_format : str, optional
+            Tick format specifier for the y-axis (e.g., ",.2f").
+
+        Returns
+        -------
+        Waterfall
+            self
+        """
+        # resolve y
+        resolved_y = []
+        for v in y:
+            if isinstance(v, str):
+                if v.lower() == "total":
+                    resolved_y.append(0)
+                else:
+                    if v not in self.data.columns:
+                        raise KeyError(f"Column '{v}' not in dataframe.")
+                    resolved_y.append(float(self.data[v].iloc[-1]))
+            else:
+                resolved_y.append(float(v))
+
+        # measure types
+        measures = ["total" if str(lbl).lower() == "total" else "relative" for lbl in y]
+
+        # axis formatting
+        if y_format:
+            self._add_axis_update({"yaxis": {"tickformat": y_format}})
+
+        # text formatting
+        text_values = None
+        if isinstance(text, (list, tuple)):
+            if len(text) != len(x):
+                raise ValueError("Length of text list must match length of x/y.")
+            text_values = list(text)
+        elif text is True:
+            text_values = [str(v) for v in resolved_y]
+        elif isinstance(text, str):
+            if text.lower() == "percent":
+                total = sum(v for v in resolved_y if isinstance(v, (int, float)))
+                text_values = [
+                    f"{v/total:.1%}" if total != 0 else "" for v in resolved_y
+                ]
+            else:
+                raise ValueError(
+                    "Unsupported text mode. Use True, list[str], or 'percent'."
+                )
+
+        trace = go.Waterfall(
+            name=name,
+            x=list(x),
+            y=resolved_y,
+            measure=measures,
+            increasing={"marker": {"color": increasing_color}},
+            decreasing={"marker": {"color": decreasing_color}},
+            totals={"marker": {"color": total_color}},
+            connector={"line": {"width": connector_width}},
+            text=text_values,
+            textposition=textposition if text_values is not None else None,
+            meta=self._meta_for(value_source=y),
+        )
+
+        self.traces.append(trace)
+
+        if title:
+            self.update_layout(title=title)
+        if y_format:
+            self.update_yaxes(tickformat=y_format)
+
+        return self
