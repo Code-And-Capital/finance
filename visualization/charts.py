@@ -330,6 +330,7 @@ class Chart(abc.ABC):
     def marker_style(
         self,
         size: Optional[Union[int, Sequence[int]]] = None,
+        color: Optional[Union[str, Sequence[str]]] = None,
         line_width: Optional[int] = None,
         line_color: Optional[str] = None,
     ) -> "Chart":
@@ -340,6 +341,8 @@ class Chart(abc.ABC):
         ----------
         size : int or sequence[int], optional
             Marker size or per-point sizes.
+        color : str or sequence[str], optional
+            Marker fill color(s) or per-point colors.
         line_width : int, optional
             Marker outline width.
         line_color : str, optional
@@ -348,6 +351,9 @@ class Chart(abc.ABC):
         marker = {}
         if size is not None:
             marker["size"] = size
+        if color is not None:
+            marker["color"] = color
+
         if line_width is not None or line_color is not None:
             marker_line = {}
             if line_width is not None:
@@ -665,7 +671,10 @@ class Scatter(Chart):
         self,
         x: Union[str, Sequence, None],
         y: Union[str, Sequence[str]],
+        mode: str = "markers",
+        marker_symbol: Optional[str] = None,
         size: Optional[Union[int, Sequence[int]]] = None,
+        color: Optional[Union[str, Sequence[str]]] = None,
         yaxis: Optional[str] = None,
     ) -> "Scatter":
         """
@@ -673,25 +682,41 @@ class Scatter(Chart):
 
         Parameters
         ----------
-        x : str or sequence or None
+        x : str, sequence, or None
             Column name, 'index', or explicit sequence for x values.
         y : str or sequence[str]
             Column name(s) to plot as markers.
+        mode : str, default "markers"
+            Scatter mode (e.g., 'markers', 'lines', 'lines+markers').
+        marker_symbol : str, optional
+            Symbol type for the marker.
         size : int or sequence[int], optional
             Marker size or per-point sizes.
+        color : str or sequence[str], optional
+            Marker color or per-point colors.
+        yaxis : str, optional
+            Target y-axis (e.g., 'y2') for the trace.
         """
         y_cols = ensure_list(y)
         self._ensure_columns_exist(y_cols)
         x_vals = self._coerce_x_values(x)
 
         for col in y_cols:
+            marker = {}
+            if size is not None:
+                marker["size"] = size
+            if color is not None:
+                marker["color"] = color
+
             trace = go.Scatter(
                 x=x_vals,
                 y=self.data[col].to_numpy(),
-                mode="markers",
-                marker={"size": size} if size is not None else None,
+                mode=mode,
+                marker_symbol=marker_symbol,
+                marker=marker if marker else None,
                 name=str(col),
                 meta=self._meta_for(y_col=col),
+                yaxis=yaxis,
             )
             self.traces.append(trace)
         return self
@@ -1245,5 +1270,113 @@ class Waterfall(Chart):
             self.update_layout(title=title)
         if y_format:
             self.update_yaxes(tickformat=y_format)
+
+        return self
+
+
+class Contour(Chart):
+    """
+    Contour chart builder.
+
+    Supports Plotly Contour trace types for visualizing 3D data
+    as 2D contour maps with optional coloring and labels.
+
+    Usage
+    -----
+    Contour(df).create(
+        x="X",
+        y="Y",
+        z="Z",
+        colorscale="Viridis",
+        showscale=True,
+        contours=dict(showlabels=True, labelfont=dict(size=12))
+    )
+    """
+
+    def create(
+        self,
+        z: Union[str, Sequence[Sequence[float]]],
+        x: Optional[Union[str, Sequence[float]]] = None,
+        y: Optional[Union[str, Sequence[float]]] = None,
+        colorscale: Optional[Union[str, list]] = "Viridis",
+        opacity=1,
+        showscale: bool = True,
+        contours: Optional[dict] = None,
+        z_format: Optional[str] = None,
+        name: Optional[str] = None,
+        title: Optional[str] = None,
+        **kwargs,
+    ) -> "Contour":
+        """
+        Create Contour trace.
+
+        Parameters
+        ----------
+        z : str or 2D array
+            Column name from dataframe or 2D array of values for z-axis.
+        x : str or sequence, optional
+            Column name or sequence for x-axis.
+        y : str or sequence, optional
+            Column name or sequence for y-axis.
+        colorscale : str or list, optional
+            Plotly colorscale or list of colors.
+        showscale : bool, optional
+            Whether to display the color scale bar.
+        contours : dict, optional
+            Contours dict (e.g., showlines, coloring, labelfont).
+        z_format : str, optional
+            Tick format for z-axis, e.g., ".2f".
+        name : str, optional
+            Trace name.
+        title : str, optional
+            Chart title.
+        kwargs : additional keyword arguments passed to go.Contour.
+
+        Returns
+        -------
+        Contour
+            self
+        """
+
+        # -------- resolve data from dataframe if needed --------
+        if isinstance(z, str):
+            if z not in self.data.columns:
+                raise KeyError(f"Column '{z}' not in dataframe.")
+            z_values = self.data[z].to_numpy()
+        else:
+            z_values = z
+
+        x_values = x
+        if isinstance(x, str):
+            if x not in self.data.columns:
+                raise KeyError(f"Column '{x}' not in dataframe.")
+            x_values = self.data[x].to_numpy()
+
+        y_values = y
+        if isinstance(y, str):
+            if y not in self.data.columns:
+                raise KeyError(f"Column '{y}' not in dataframe.")
+            y_values = self.data[y].to_numpy()
+
+        # -------- axis formatting --------
+        if z_format:
+            self._add_axis_update({"zaxis": {"tickformat": z_format}})
+
+        # -------- Plotly trace --------
+        trace = go.Contour(
+            z=z_values,
+            x=x_values,
+            y=y_values,
+            colorscale=colorscale,
+            showscale=showscale,
+            contours=contours,
+            opacity=opacity,
+            name=name,
+            meta=self._meta_for(value_source=z),
+            hoverinfo="skip",
+            **kwargs,
+        )
+
+        self.traces.append(trace)
 
         return self

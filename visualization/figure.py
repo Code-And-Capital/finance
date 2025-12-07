@@ -139,6 +139,8 @@ class Figure:
         """
         if isinstance(trace, go.Indicator):
             return trace
+        if isinstance(trace, go.Contour):
+            return trace
 
         # Candlestick — keep defaults
         if isinstance(trace, go.Candlestick):
