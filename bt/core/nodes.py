@@ -131,7 +131,7 @@ class Node:
 
             # string = lazy security definition
             if isinstance(child, str):
-                if child in self._universe_tickers:
+                if child in self._universe_tickers or child in self._lazy_children:
                     raise ValueError(f"Child {child} already exists")
                 child = Security(child, lazy_add=True)
 

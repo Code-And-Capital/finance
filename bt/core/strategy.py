@@ -266,7 +266,9 @@ class StrategyBase(Node):
         # If original children were provided, restrict universe to those tickers
         if getattr(self, "_original_children_are_present", False):
             valid_filter = list(
-                set(universe.columns).intersection(self._universe_tickers)
+                set(universe.columns).intersection(
+                    self._universe_tickers + list(self._lazy_children.keys())
+                )
             )
             funiverse = universe[valid_filter].copy()
 

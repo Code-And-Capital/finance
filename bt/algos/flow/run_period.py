@@ -110,7 +110,6 @@ class RunPeriod(Algo, metaclass=abc.ABCMeta):
 
         return self.compare_dates(now_ts, neighbor_ts)
 
-    @abc.abstractmethod
     def compare_dates(self, now: pd.Timestamp, neighbor: pd.Timestamp) -> bool:
         """
         Compare two dates to determine whether a period boundary has occurred.

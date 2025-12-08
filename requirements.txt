@@ -10,3 +10,5 @@ black[jupyter]
 plotly
 nbformat
 ffn
+pyprind
+tqdm
