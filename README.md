@@ -18,6 +18,19 @@ We publish regular videos on:
 
 👉 **Subscribe here:** [Code & Capital YouTube Channel](https://www.youtube.com/@CodeCapital1)
 
+## ⚙️ Setup
+
+Setup Instructions
+
+To set up the project environment, run the following commands in your terminal:
+
+```cmd
+source setup.sh
+```
+
+
+This will create and activate a Conda environment with all required dependencies installed. Once the setup completes, you can start working with the project, run tests, or execute notebooks.
+
 
 ## 📚 Notebook Examples
 

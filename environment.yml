@@ -1,0 +1,11 @@
+name: finance
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.14
+  - pip
+  - pip:
+      - -r requirements.txt
+      - -r requirements_test.txt
+      - -r requirements_jupyter.txt
