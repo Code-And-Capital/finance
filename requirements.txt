@@ -4,6 +4,7 @@ yfinance
 bs4
 selenium
 openpyxl
+lxml
 xlrd
 black
 black[jupyter]
