@@ -129,28 +129,32 @@ class Figure:
                         specs[r][c] = None
         return specs
 
-    # -------------------------------------------------------------------------
-    # Color & Legend Assignment
-    # -------------------------------------------------------------------------
     def _assign_global_color_and_legend(self, trace):
-        """
-        Assign consistent colors for traces and deduplicate legends globally.
-        Candlestick traces are left with default colors.
-        """
+        """Assign consistent colors for traces and deduplicate legends globally."""
+
+        # Detect whether the user explicitly set showlegend=False
+        user_forced_hide = (
+            "showlegend" in getattr(trace, "_props", {})
+            and trace._props["showlegend"] is False
+        )
+
+        # Keep indicators & contours untouched
         if isinstance(trace, go.Indicator):
             return trace
+
         if isinstance(trace, go.Contour):
             return trace
 
-        # Candlestick — keep defaults
+        # Candlestick — keep defaults, but still preserve user-defined hide
         if isinstance(trace, go.Candlestick):
             name = getattr(trace, "name", None)
             if name and name not in self._used_legend_names:
                 self._used_legend_names.add(name)
-            trace.showlegend = False
+            if not user_forced_hide:
+                trace.showlegend = False
             return trace
 
-        # Multi-category traces
+        # Multi-category traces (pie, etc)
         categories = None
         if hasattr(trace, "labels") and trace.labels is not None:
             categories = trace.labels
@@ -159,8 +163,8 @@ class Figure:
 
         if categories is not None:
             trace.marker = trace.marker or {}
-            colors: List[str] = []
-            new_categories_for_legend: List[str] = []
+            colors = []
+            new_categories_for_legend = []
 
             for cat in categories:
                 if cat in self._global_color_map:
@@ -171,13 +175,14 @@ class Figure:
                     ]
                     self._color_index += 1
                     self._global_color_map[cat] = color
+
                 colors.append(color)
 
                 if cat not in self._used_legend_names:
                     new_categories_for_legend.append(cat)
                     self._used_legend_names.add(cat)
 
-            # Assign colors safely (Pie uses `colors` only)
+            # Assign colors
             if hasattr(trace.marker, "colors"):
                 trace.marker.colors = colors
             elif trace.__class__.__name__.lower() == "pie":
@@ -185,11 +190,17 @@ class Figure:
             else:
                 trace.marker.color = colors
 
-            trace.showlegend = len(new_categories_for_legend) > 0
+            # Apply legend logic only if user didn't override
+            if not user_forced_hide:
+                trace.showlegend = len(new_categories_for_legend) > 0
+
             return trace
 
-        # Single-category traces
+        # --- Single-category traces below ---
+
         name = getattr(trace, "name", None)
+
+        # Color mapping
         if name in self._global_color_map:
             color = self._global_color_map[name]
         else:
@@ -197,7 +208,7 @@ class Figure:
             self._color_index += 1
             self._global_color_map[name] = color
 
-        # Apply color based on trace type
+        # Apply color to appropriate attribute
         if hasattr(trace, "marker") and trace.marker is not None:
             trace.marker.color = color
         elif hasattr(trace, "line") and trace.line is not None:
@@ -206,14 +217,32 @@ class Figure:
             trace.fillcolor = color
 
         # Legend deduplication
-        if name in self._used_legend_names:
-            trace.showlegend = False
-        else:
-            trace.showlegend = True
-            if name:
-                self._used_legend_names.add(name)
+        if not user_forced_hide:
+            if name in self._used_legend_names:
+                trace.showlegend = False
+            else:
+                trace.showlegend = True
+                if name:
+                    self._used_legend_names.add(name)
 
         return trace
+
+    def _axis_index_from_specs(self, target_row, target_col):
+        index = 0
+        for r, row in enumerate(self.specs, start=1):
+            for c, cell in enumerate(row, start=1):
+                # skip empty or domain-type cells
+                if not cell or cell.get("type") != "xy":
+                    continue
+
+                # count this xy cell
+                index += 1
+
+                # check if this is the target slot
+                if r == target_row and c == target_col:
+                    return index
+
+        return None
 
     # -------------------------------------------------------------------------
     # Build Process
@@ -262,7 +291,7 @@ class Figure:
             for update in chart.axis_updates:
                 if update.get("chart_id") != chart.chart_id:
                     continue
-                axis_index = (row - 1) * self.cols + col
+                axis_index = self._axis_index_from_specs(row, col)
                 if "xaxis" in update:
                     axis_key = f"xaxis{'' if axis_index == 1 else axis_index}"
                     self.fig.layout[axis_key].update(update["xaxis"])

@@ -87,7 +87,7 @@ def test_build_assigns_colors_consistently():
     fig = Figure(rows=1, cols=1)
 
     c1 = MockChart(traces=[make_trace("A")])
-    c2 = MockChart(traces=[make_trace("A")])  # duplicate legend name, no legend shown
+    c2 = MockChart(traces=[make_trace("A")])
 
     fig.add_chart(c1, row=1, col=1)
     fig.add_chart(c2, row=1, col=1)
