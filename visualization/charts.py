@@ -1380,3 +1380,149 @@ class Contour(Chart):
         self.traces.append(trace)
 
         return self
+
+
+class ScatterGeo(Chart):
+    """
+    Geographic scatter (marker) chart builder using Plotly Scattergeo.
+
+    Designed for plotting latitude/longitude points on a world or regional map.
+    """
+
+    def create(
+        self,
+        lat: str = "LAT",
+        lon: str = "LON",
+        text: Optional[Union[str, Sequence[str]]] = None,
+        size: Optional[Union[int, Sequence[int]]] = None,
+        color: Optional[Union[str, Sequence[str]]] = None,
+        symbol: Optional[Union[str, Sequence[str]]] = None,
+        opacity: float = 0.8,
+        line_width: int = 1,
+        line_color: str = "black",
+        name: Optional[str] = None,
+    ) -> "ScatterGeo":
+        """
+        Create a Scattergeo marker trace.
+
+        Parameters
+        ----------
+        lat : str
+            Column name containing latitude values.
+        lon : str
+            Column name containing longitude values.
+        text : str or sequence[str], optional
+            Column name or sequence used for hover text.
+        size : int or sequence[int], optional
+            Marker size(s).
+        color : str or sequence[str], optional
+            Marker color(s).
+        symbol : str or sequence[str], optional
+            Marker symbol(s).
+        opacity : float
+            Marker opacity.
+        line_width : int
+            Marker outline width.
+        line_color : str
+            Marker outline color.
+        name : str, optional
+            Trace name.
+        """
+
+        self._ensure_columns_exist([lat, lon])
+
+        # Resolve hover text
+        if isinstance(text, str):
+            if text not in self.data.columns:
+                raise KeyError(f"Column '{text}' not in dataframe.")
+            text_values = self.data[text]
+        elif isinstance(text, list):
+            self._ensure_columns_exist(text)
+            text_values = self.data[text]
+        elif is_sequence(text):
+            text_values = list(text)
+        else:
+            text_values = None
+
+        marker = {
+            "opacity": opacity,
+            "line": {"width": line_width, "color": line_color},
+        }
+        if size is not None:
+            marker["size"] = size
+        if color is not None:
+            marker["color"] = color
+        if symbol is not None:
+            marker["symbol"] = symbol
+
+        trace = go.Scattergeo(
+            lat=self.data[lat],
+            lon=self.data[lon],
+            text=text_values,
+            mode="markers",
+            marker=marker,
+            name=name,
+            meta=self._meta_for(lat_col=lat, lon_col=lon),
+        )
+
+        self.traces.append(trace)
+        return self
+
+    def build_geo_layout_update(
+        self,
+        scope: str = "world",
+        projection: str = "natural earth",
+        resolution: int = 50,
+        landcolor: str = "rgb(245, 240, 210)",
+        oceancolor: str = "rgb(180, 200, 230)",
+        lakecolor: str = "rgb(180, 200, 230)",
+        countrycolor: str = "rgb(160, 160, 160)",
+        subunitcolor: str = "rgb(200, 200, 200)",
+    ):
+        """
+        Build and return a Plotly layout update dict for geo-based charts.
+
+        This function encapsulates all geo layout configuration and returns
+        a dictionary that can be passed directly to `_add_layout_update`.
+
+        Parameters
+        ----------
+        scope : str
+            Geographic scope ('world', 'usa', 'europe', etc.).
+            Note: 'albers usa' projection is only valid with scope='usa'.
+
+        projection : str
+            Map projection type (e.g. 'natural earth', 'mercator', 'albers usa').
+
+        resolution : int
+            Map resolution (typically 50 or 110).
+
+        Returns
+        -------
+        dict
+            Layout update dictionary containing a fully configured `geo` entry.
+        """
+
+        # ── Validate projection / scope combinations ──
+        if projection == "albers usa" and scope != "usa":
+            raise ValueError(
+                "Projection 'albers usa' can only be used with scope='usa'."
+            )
+
+        geo_dict = {
+            "scope": scope,
+            "projection": {"type": projection},
+            "resolution": resolution,
+            "showland": True,
+            "landcolor": landcolor,
+            "showocean": True,
+            "oceancolor": oceancolor,
+            "showlakes": True,
+            "lakecolor": lakecolor,
+            "showcountries": True,
+            "countrycolor": countrycolor,
+            "showsubunits": True,
+            "subunitcolor": subunitcolor,
+        }
+        self._add_layout_update({"geo": geo_dict})
+        return self

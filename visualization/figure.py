@@ -101,10 +101,14 @@ class Figure:
 
             domain_types = {"pie", "sunburst", "treemap", "funnelarea", "indicator"}
 
+            geo_types = {"scattergeo", "choropleth"}
+
             if raw_type in xy_types:
                 trace_type = "xy"
             elif raw_type in domain_types:
                 trace_type = "domain"
+            elif raw_type in geo_types:
+                trace_type = "geo"
             else:
                 # fallback: assume Cartesian unless truly unknown
                 trace_type = "xy"
