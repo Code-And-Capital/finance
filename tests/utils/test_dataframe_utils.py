@@ -6,6 +6,7 @@ from utils.dataframe_utils import (
     convert_columns_to_numeric,
     df_to_dict,
     normalize_columns,
+    add_missing_tickers,
 )
 
 
@@ -217,3 +218,69 @@ def test_leading_trailing_spaces():
 
     # Leading/trailing spaces become underscores as well
     assert result.columns.tolist() == ["__COL__ONE__", "_COL_TWO"]
+
+
+def test_add_missing_tickers_adds_missing_rows():
+    df = pd.DataFrame(
+        {
+            "TICKER": ["AAPL", "MSFT"],
+            "START_DATE": ["2010-01-01", "2011-01-01"],
+        }
+    )
+
+    result = add_missing_tickers(df, ["AAPL", "MSFT", "GOOG"])
+
+    assert set(result["TICKER"]) == {"AAPL", "MSFT", "GOOG"}
+    assert result.loc[result["TICKER"] == "GOOG", "START_DATE"].iloc[0] == "2000-01-01"
+
+
+def test_add_missing_tickers_no_change_when_all_present():
+    df = pd.DataFrame(
+        {
+            "TICKER": ["AAPL", "MSFT"],
+            "START_DATE": ["2010-01-01", "2011-01-01"],
+        }
+    )
+
+    result = add_missing_tickers(df, ["AAPL", "MSFT"])
+
+    assert result.equals(df)
+
+
+def test_add_missing_tickers_empty_ticker_list():
+    df = pd.DataFrame(
+        {
+            "TICKER": ["AAPL"],
+            "START_DATE": ["2010-01-01"],
+        }
+    )
+
+    result = add_missing_tickers(df, [])
+
+    assert result.equals(df)
+
+
+def test_add_missing_tickers_preserves_existing_rows():
+    df = pd.DataFrame(
+        {
+            "TICKER": ["AAPL"],
+            "START_DATE": ["2010-01-01"],
+            "WEIGHT": [0.05],
+        }
+    )
+
+    result = add_missing_tickers(df, ["AAPL", "MSFT"])
+
+    assert "WEIGHT" in result.columns
+    assert result.loc[result["TICKER"] == "AAPL", "WEIGHT"].iloc[0] == 0.05
+
+
+def test_add_missing_tickers_missing_ticker_column_raises():
+    df = pd.DataFrame(
+        {
+            "START_DATE": ["2010-01-01"],
+        }
+    )
+
+    with pytest.raises(KeyError):
+        add_missing_tickers(df, ["AAPL"])

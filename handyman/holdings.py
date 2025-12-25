@@ -1,0 +1,106 @@
+import pandas as pd
+import utils.sql_utils as sql_utils
+from utils.list_utils import normalize_to_list
+
+
+def get_index_holdings(indices=None, tickers=None, start_date=None):
+    """
+    Retrieve index holdings from the holdings table with optional filters.
+
+    Parameters
+    ----------
+    indices : str or sequence of str, optional
+        Index identifier(s) to filter on (e.g. 'SP500' or ['SP500', 'NASDAQ100']).
+    tickers : str or sequence of str, optional
+        Ticker symbol(s) to filter on.
+    start_date : str or datetime-like, optional
+        Earliest date (inclusive) for which holdings should be returned.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Holdings data with DATE converted to datetime.
+
+    Notes
+    -----
+    - String inputs are treated as a single index or ticker.
+    - SQL is constructed via string interpolation; inputs are assumed trusted.
+    """
+
+    indices = normalize_to_list(indices)
+    tickers = normalize_to_list(tickers)
+
+    index_filter = ""
+    ticker_filter = ""
+    date_filter = ""
+
+    if indices:
+        index_string = "', '".join(indices)
+        index_filter = f"""AND "INDEX" IN ('{index_string}')"""
+
+    if tickers:
+        ticker_string = "', '".join(tickers)
+        ticker_filter = f"AND TICKER IN ('{ticker_string}')"
+
+    if start_date:
+        date_filter = f"AND DATE >= '{start_date}'"
+
+    query = f"""
+    SELECT *
+    FROM holdings
+    WHERE 1=1
+    {index_filter}
+    {ticker_filter}
+    {date_filter}
+    """
+
+    df = sql_utils.read_sql_table(query=query, database_name="CODE_CAPITAL")
+    df["DATE"] = pd.to_datetime(df["DATE"])
+    return df
+
+
+def get_llm_holdings(llms=None, start_date=None):
+    """
+    Retrieve LLM holdings from the database with optional filters for strategies
+    and start date.
+
+    Parameters
+    ----------
+    llms : str, sequence of str, or array-like, optional
+        Strategy names to filter. Single string is treated as one strategy.
+    start_date : str or datetime-like, optional
+        Earliest date (inclusive) to filter the holdings.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Holdings data for the requested strategies and date range.
+
+    Notes
+    -----
+    - Uses `normalize_to_list` internally to handle single strings, sequences,
+      or array-like inputs.
+    - SQL query is constructed via string interpolation.
+    """
+    llms = normalize_to_list(llms)
+
+    llm_filter = ""
+    date_filter = ""
+
+    if llms:
+        llm_string = "', '".join(llms)
+        llm_filter = f"""AND strategy IN ('{llm_string}')"""
+
+    if start_date:
+        date_filter = f"AND DATE >= '{start_date}'"
+
+    query = f"""
+    SELECT *
+    FROM LLM
+    WHERE 1=1
+    {llm_filter}
+    {date_filter}
+    """
+
+    df = sql_utils.read_sql_table(query=query, database_name="CODE_CAPITAL")
+    return df

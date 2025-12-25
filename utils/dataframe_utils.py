@@ -60,3 +60,51 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     df.columns = [str(c).upper().replace(" ", "_") for c in df.columns]
     return df
+
+
+import pandas as pd
+
+
+def add_missing_tickers(df, ticker_list):
+    """
+    Ensure all tickers in `ticker_list` are present in the DataFrame.
+
+    Any ticker not already present in the `TICKER` column is appended as a new
+    row with a default START_DATE of '2000-01-01'.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing at least a 'TICKER' column.
+    ticker_list : sequence of str
+        List of ticker symbols that must appear in the output DataFrame.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame containing all original rows plus any missing tickers.
+
+    Raises
+    ------
+    KeyError
+        If the input DataFrame does not contain a 'TICKER' column.
+    """
+
+    if "TICKER" not in df.columns:
+        raise KeyError("DataFrame must contain a 'TICKER' column")
+
+    df = df.copy()
+
+    existing = set(df["TICKER"])
+    missing = [t for t in ticker_list if t not in existing]
+
+    if missing:
+        new_rows = pd.DataFrame(
+            {
+                "TICKER": missing,
+                "START_DATE": "2000-01-01",
+            }
+        )
+        df = pd.concat([df, new_rows], ignore_index=True)
+
+    return df

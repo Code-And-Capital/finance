@@ -19,6 +19,10 @@ ADDRESS_PATTERNS = {
     "LUXEMBOURG": "{street}, {zip} {city}, {country}",
     "FINLAND": "{street}, {zip} {city}, {country}",
     "CAYMAN ISLANDS": "{street}, {city}, {zip}, {country}",
+    "FRANCE": "{street}, {zip} {city}, {country}",
+    "ITALY": "{street}, {zip} {city}, {country}",
+    "DENMARK": "{street}, {zip} {city}, {country}",
+    "TAIWAN": "{street}, {city}, {zip}, {country}",
 }
 
 
@@ -34,6 +38,10 @@ ADDRESS_FALLBACK_PATTERNS = {
     "LUXEMBOURG": "{zip} {city}, {country}",
     "FINLAND": "{zip} {city}, {country}",
     "CAYMAN ISLANDS": "{city}, {zip}, {country}",
+    "FRANCE": "{zip} {city}, {country}",
+    "ITALY": "{zip} {city}, {country}",
+    "DENMARK": "{zip} {city}, {country}",
+    "TAIWAN": "{city}, {zip}, {country}",
 }
 
 DEFAULT_ADDRESS_COLS = {
