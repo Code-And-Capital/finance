@@ -726,24 +726,38 @@ class Area(Chart):
     """Area (filled) chart builder."""
 
     def create(
-        self, x: Union[str, Sequence, None], y: Union[str, Sequence[str]]
+        self,
+        x: Union[str, Sequence, None],
+        y: Union[str, Sequence[str]],
+        stacked: bool = False,
     ) -> "Area":
         """
-        Create filled area traces (fill to zero).
+        Create filled area traces.
+
+        Parameters
+        ----------
+        x : str, sequence, or None
+            X-axis values or column name.
+        y : str or sequence of str
+            Column(s) to plot.
+        stacked : bool, default False
+            If True, stack area traces.
         """
         y_cols = ensure_list(y)
         self._ensure_columns_exist(y_cols)
         x_vals = self._coerce_x_values(x)
 
-        for col in y_cols:
+        for i, col in enumerate(y_cols):
             trace = go.Scatter(
                 x=x_vals,
                 y=self.data[col].to_numpy(),
-                fill="tozeroy",
                 name=str(col),
                 meta=self._meta_for(y_col=col),
+                fill="tozeroy" if i == 0 or not stacked else "tonexty",
+                stackgroup="stack" if stacked else None,
             )
             self.traces.append(trace)
+
         return self
 
 

@@ -359,8 +359,8 @@ class Figure:
         showgrid_y: Optional[bool] = None,
     ) -> "Figure":
         """Convenience wrapper for global axis styling."""
-        if not self.fig:
-            raise RuntimeError("Figure must be built before updating axes.")
+        if self.fig is None:
+            self.build()
 
         if x_tickformat:
             self.fig.update_xaxes(tickformat=x_tickformat)

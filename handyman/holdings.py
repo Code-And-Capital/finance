@@ -103,4 +103,5 @@ def get_llm_holdings(llms=None, start_date=None):
     """
 
     df = sql_utils.read_sql_table(query=query, database_name="CODE_CAPITAL")
+    df["DATE"] = pd.to_datetime(df["DATE"])
     return df

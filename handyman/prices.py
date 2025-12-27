@@ -54,4 +54,5 @@ def get_prices(tickers, start_date=None):
     prices = sql_utils.read_sql_table(query=prices_query, database_name="CODE_CAPITAL")
     prices["DATE"] = pd.to_datetime(prices["DATE"])
     prices = prices.pivot(index="DATE", columns="TICKER", values="ADJ_CLOSE")
+    prices = prices.ffill().where(prices[::-1].notna().cummax()[::-1])
     return prices
