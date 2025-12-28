@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine, URL
 # Connection / Engine helpers
 # -----------------------------
 
+
 def get_azure_engine(
     server: Optional[str] = None,
     database: Optional[str] = None,
@@ -44,15 +45,17 @@ def get_azure_engine(
     password = password or os.getenv("AZ_PASSWORD")
 
     if not all([server, database, username, password]):
-        missing = [k for k, v in {
-            "server (AZ_SERVER)": server,
-            "database (AZ_DB)": database,
-            "username (AZ_USER)": username,
-            "password (AZ_PASSWORD)": password,
-        }.items() if not v]
-        raise ValueError(
-            f"Missing Azure SQL connection settings: {', '.join(missing)}"
-        )
+        missing = [
+            k
+            for k, v in {
+                "server (AZ_SERVER)": server,
+                "database (AZ_DB)": database,
+                "username (AZ_USER)": username,
+                "password (AZ_PASSWORD)": password,
+            }.items()
+            if not v
+        ]
+        raise ValueError(f"Missing Azure SQL connection settings: {', '.join(missing)}")
 
     conn_str = (
         f"Driver={{{driver}}};"
@@ -74,9 +77,10 @@ def get_azure_engine(
 # Type inference for new columns
 # -----------------------------
 
+
 def _infer_sqlserver_type(series: pd.Series) -> str:
     """
-    Infer a reasonable SQL Server type for a pandas Series. Used only when 
+    Infer a reasonable SQL Server type for a pandas Series. Used only when
     adding new columns
 
     Biased toward types that are safe and broadly compatible.
@@ -92,7 +96,7 @@ def _infer_sqlserver_type(series: pd.Series) -> str:
     if pd.api.types.is_datetime64_any_dtype(dtype):
         return "DATETIME2"
     if pd.api.types.is_timedelta64_dtype(dtype):
-        return "BIGINT" 
+        return "BIGINT"
 
     # object/string/category fallback
     return "NVARCHAR(MAX)"
@@ -128,10 +132,10 @@ def _quote_ident(name: str) -> str:
     return "[" + name.replace("]", "]]") + "]"
 
 
-
 # -----------------------------
 # Core utilities
 # -----------------------------
+
 
 def write_sql_table(
     engine: Engine,
@@ -176,33 +180,43 @@ def write_sql_table(
     df.columns = [str(c) for c in df.columns]
 
     if overwrite:
-        df.to_sql(table_name, 
-                  engine, 
-                  schema=schema, 
-                  if_exists="replace", 
-                  index=False, 
-                  chunksize=chunksize)
+        df.to_sql(
+            table_name,
+            engine,
+            schema=schema,
+            if_exists="replace",
+            index=False,
+            chunksize=chunksize,
+        )
         return
 
-    # Check table exists + add missing columns 
+    # Check table exists + add missing columns
     with engine.begin() as conn:
-        table_exists = conn.execute(
-            text("""
+        table_exists = (
+            conn.execute(
+                text(
+                    """
                 SELECT 1
                 FROM INFORMATION_SCHEMA.TABLES
                 WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
-            """),
-            {"schema": schema, "table": table_name},
-        ).scalar() is not None
+            """
+                ),
+                {"schema": schema, "table": table_name},
+            ).scalar()
+            is not None
+        )
 
         if table_exists:
             existing_cols = {
-                r[0] for r in conn.execute(
-                    text("""
+                r[0]
+                for r in conn.execute(
+                    text(
+                        """
                         SELECT COLUMN_NAME
                         FROM INFORMATION_SCHEMA.COLUMNS
                         WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
-                    """),
+                    """
+                    ),
                     {"schema": schema, "table": table_name},
                 ).fetchall()
             }
@@ -217,9 +231,23 @@ def write_sql_table(
 
     # Write rows
     if not table_exists:
-        df.to_sql(table_name, engine, schema=schema, if_exists="replace", index=False, chunksize=chunksize)
+        df.to_sql(
+            table_name,
+            engine,
+            schema=schema,
+            if_exists="replace",
+            index=False,
+            chunksize=chunksize,
+        )
     else:
-        df.to_sql(table_name, engine, schema=schema, if_exists="append", index=False, chunksize=chunksize)
+        df.to_sql(
+            table_name,
+            engine,
+            schema=schema,
+            if_exists="append",
+            index=False,
+            chunksize=chunksize,
+        )
 
 
 def read_sql_table(
@@ -280,11 +308,14 @@ def delete_sql_rows(
         schema: Schema name
     """
     if not where_clause or not where_clause.strip():
-        raise ValueError("where_clause must be a non-empty string (refusing to run DELETE without a filter).")
+        raise ValueError(
+            "where_clause must be a non-empty string (refusing to run DELETE without a filter)."
+        )
 
     sql = f"DELETE FROM {_quote_ident(schema)}.{_quote_ident(table_name)} WHERE {where_clause};"
     with engine.begin() as conn:
         conn.exec_driver_sql(sql)
+
 
 def execute_sql(
     engine: Engine,

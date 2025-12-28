@@ -17,7 +17,7 @@ def write_sql_table(
     """
     database_loc = os.path.join(
         os.path.abspath(
-            os.path.join(os.path.dirname(os.path.realpath("__file__")), "..")
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
         ),
         "Data",
         f"{database_name}.sqlite",
@@ -81,7 +81,7 @@ def read_sql_table(
     # - Append the database name with '.sqlite' extension
     database_loc = os.path.join(
         os.path.abspath(
-            os.path.join(os.path.dirname(os.path.realpath("__file__")), "..")
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
         ),
         "Data",
         f"{database_name}.sqlite",
@@ -130,7 +130,7 @@ def delete_sql_rows(
     # Construct the absolute path to the database file
     database_loc = os.path.join(
         os.path.abspath(
-            os.path.join(os.path.dirname(os.path.realpath("__file__")), "..")
+            os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")
         ),
         "Data",
         f"{database_name}.sqlite",
