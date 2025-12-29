@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, URL
 
-import finance.utils.configs_reader as configs_reader
+import utils.configs_reader as configs_reader
 
 # -----------------------------
 # Connection / Engine helpers

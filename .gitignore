@@ -9,6 +9,7 @@ __pycache__/
 # databases
 *.sqlite
 *_youtube.ipynb
+*_example.ipynb
 .DS_Store
 .vscode/
 
