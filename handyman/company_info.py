@@ -3,7 +3,7 @@ import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
 
 
-def get_company_info(tickers=None, start_date=None, configs_path = None):
+def get_company_info(tickers=None, start_date=None, configs_path=None):
     """
     Retrieve company-level information with optional ticker and date filters.
 
@@ -48,9 +48,7 @@ def get_company_info(tickers=None, start_date=None, configs_path = None):
     {date_filter}
     """
 
-    engine = azure_utils.get_azure_engine(
-        configs_path=configs_path
-    )
+    engine = azure_utils.get_azure_engine(configs_path=configs_path)
 
     df = azure_utils.read_sql_table(engine=engine, query=query)
     df["DATE"] = pd.to_datetime(df["DATE"])

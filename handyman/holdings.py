@@ -54,9 +54,7 @@ def get_index_holdings(indices=None, tickers=None, start_date=None, configs_path
     {date_filter}
     """
 
-    engine = azure_utils.get_azure_engine(
-        configs_path=configs_path
-    )
+    engine = azure_utils.get_azure_engine(configs_path=configs_path)
 
     df = azure_utils.read_sql_table(engine=engine, query=query)
     df["DATE"] = pd.to_datetime(df["DATE"])
@@ -106,9 +104,7 @@ def get_llm_holdings(llms=None, start_date=None, configs_path=None):
     {date_filter}
     """
 
-    engine = azure_utils.get_azure_engine(
-        configs_path=configs_path
-    )
+    engine = azure_utils.get_azure_engine(configs_path=configs_path)
 
     df = azure_utils.read_sql_table(engine=engine, query=query)
     df["DATE"] = pd.to_datetime(df["DATE"])
