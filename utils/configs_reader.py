@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import Union, Dict, Any
 
+
 def read_json_configs(path: Union[str, Path]) -> Dict[str, Any]:
     """
     Read a JSON configuration file from disk and return its contents.

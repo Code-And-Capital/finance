@@ -38,7 +38,7 @@ def get_azure_engine(
     configs = configs_reader.read_json_configs(configs_path)
 
     try:
-            azure_cfg = configs["azure"]
+        azure_cfg = configs["azure"]
     except KeyError as e:
         raise KeyError('Config missing required top-level key "azure".') from e
 
@@ -47,15 +47,21 @@ def get_azure_engine(
     username = azure_cfg.get("username")
     password = azure_cfg.get("password")
 
-    missing = [k for k, v in {
-        "azure.server": server,
-        "azure.database": database,
-        "azure.username": username,
-        "azure.password": password,
-    }.items() if not v]
+    missing = [
+        k
+        for k, v in {
+            "azure.server": server,
+            "azure.database": database,
+            "azure.username": username,
+            "azure.password": password,
+        }.items()
+        if not v
+    ]
 
     if missing:
-        raise ValueError(f"Missing Azure SQL connection settings in config: {', '.join(missing)}")
+        raise ValueError(
+            f"Missing Azure SQL connection settings in config: {', '.join(missing)}"
+        )
 
     conn_str = (
         f"Driver={{{driver}}};"
