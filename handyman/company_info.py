@@ -1,9 +1,9 @@
 import pandas as pd
-import utils.sql_utils as sql_utils
+import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
 
 
-def get_company_info(tickers=None, start_date=None):
+def get_company_info(tickers=None, start_date=None, configs_path = None):
     """
     Retrieve company-level information with optional ticker and date filters.
 
@@ -48,6 +48,10 @@ def get_company_info(tickers=None, start_date=None):
     {date_filter}
     """
 
-    df = sql_utils.read_sql_table(query=query, database_name="CODE_CAPITAL")
+    engine = azure_utils.get_azure_engine(
+        configs_path=configs_path
+    )
+
+    df = azure_utils.read_sql_table(engine=engine, query=query)
     df["DATE"] = pd.to_datetime(df["DATE"])
     return df

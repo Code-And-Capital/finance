@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 from utils.database_utils import find_missing_tickers
 
 
-@patch("utils.database_utils.sql_utils.read_sql_table")
+@patch("utils.database_utils.azure_utils.read_sql_table")
 def test_find_missing_tickers_with_list(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame({"TICKER": ["AAPL", "MSFT", "GOOG"]})
 
@@ -16,7 +16,7 @@ def test_find_missing_tickers_with_list(mock_read_sql):
     assert set(missing) == {"TSLA", "NFLX"}
 
 
-@patch("utils.database_utils.sql_utils.read_sql_table")
+@patch("utils.database_utils.azure_utils.read_sql_table")
 def test_find_missing_tickers_with_string(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame({"TICKER": ["AAPL", "MSFT", "GOOG"]})
 
@@ -26,7 +26,7 @@ def test_find_missing_tickers_with_string(mock_read_sql):
     assert missing == ["TSLA"]
 
 
-@patch("utils.database_utils.sql_utils.read_sql_table")
+@patch("utils.database_utils.azure_utils.read_sql_table")
 def test_find_missing_tickers_with_numpy_array(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame({"TICKER": ["AAPL", "MSFT"]})
 
@@ -36,7 +36,7 @@ def test_find_missing_tickers_with_numpy_array(mock_read_sql):
     assert missing == ["GOOG"]
 
 
-@patch("utils.database_utils.sql_utils.read_sql_table")
+@patch("utils.database_utils.azure_utils.read_sql_table")
 def test_find_missing_tickers_all_present(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame({"TICKER": ["AAPL", "MSFT", "GOOG"]})
 

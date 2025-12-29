@@ -34,7 +34,8 @@ def get_azure_engine(
     Returns:
         SQLAlchemy Engine
     """
-
+    if not configs_path:
+        configs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "configs", "configs.json"))
     configs = configs_reader.read_json_configs(configs_path)
 
     try:

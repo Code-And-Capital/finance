@@ -5,7 +5,7 @@ from unittest.mock import patch
 from handyman.company_info import get_company_info
 
 
-@patch("handyman.company_info.sql_utils.read_sql_table")
+@patch("handyman.company_info.azure_utils.read_sql_table")
 def test_get_company_info_with_string_ticker(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -23,7 +23,7 @@ def test_get_company_info_with_string_ticker(mock_read_sql):
     assert pd.api.types.is_datetime64_any_dtype(df["DATE"])
 
 
-@patch("handyman.company_info.sql_utils.read_sql_table")
+@patch("handyman.company_info.azure_utils.read_sql_table")
 def test_get_company_info_with_list_of_tickers(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -41,7 +41,7 @@ def test_get_company_info_with_list_of_tickers(mock_read_sql):
     assert len(df) == 2
 
 
-@patch("handyman.company_info.sql_utils.read_sql_table")
+@patch("handyman.company_info.azure_utils.read_sql_table")
 def test_get_company_info_with_array_like_tickers(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -59,7 +59,7 @@ def test_get_company_info_with_array_like_tickers(mock_read_sql):
     assert isinstance(df, pd.DataFrame)
 
 
-@patch("handyman.company_info.sql_utils.read_sql_table")
+@patch("handyman.company_info.azure_utils.read_sql_table")
 def test_get_company_info_with_start_date(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -76,7 +76,7 @@ def test_get_company_info_with_start_date(mock_read_sql):
     assert pd.api.types.is_datetime64_any_dtype(df["DATE"])
 
 
-@patch("handyman.company_info.sql_utils.read_sql_table")
+@patch("handyman.company_info.azure_utils.read_sql_table")
 def test_get_company_info_no_filters(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {

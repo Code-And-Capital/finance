@@ -5,7 +5,7 @@ from datetime import date
 from copy import deepcopy
 import time
 from utils.threading import ThreadWorkerPool
-import utils.logging as logging
+from utils.logging import log
 import utils.dataframe_utils as dataframe_utils
 
 
@@ -114,7 +114,7 @@ class YahooDataClient:
                     time.sleep(0.7)
                 else:
                     # Log ticker in error
-                    logging.log(f"Failed to fetch data for {ticker}: {e}", type="error")
+                    log(f"Failed to fetch data for {ticker}: {e}", type="error")
                     raise
 
     def _fetch_info(self, ticker, obj):
@@ -293,7 +293,7 @@ class YahooDataClient:
         pd.DataFrame
             Combined dataframe of all tickers' metadata.
         """
-        logging.log("Loading Company Information")
+        log("Loading Company Information")
         tasks = [
             (lambda t=t, o=obj: self._fetch_info(t, o))
             for t, obj in self.yf_obj.tickers.items()
@@ -310,7 +310,7 @@ class YahooDataClient:
         pd.DataFrame
             Combined officer information dataframe.
         """
-        logging.log("Loading Officer Information")
+        log("Loading Officer Information")
         tasks = [
             (lambda t=t, o=obj: self._fetch_officers(t, o))
             for t, obj in self.yf_obj.tickers.items()
@@ -332,7 +332,7 @@ class YahooDataClient:
         pd.DataFrame
             Combined price history dataframe.
         """
-        logging.log("Loading Prices")
+        log("Loading Prices")
         tasks = [
             (lambda t=t, o=obj: self._fetch_prices(t, o, start_date))
             for t, obj in self.yf_obj.tickers.items()
@@ -349,7 +349,7 @@ class YahooDataClient:
         pd.DataFrame
             Combined corporate actions dataframe.
         """
-        logging.log("Loading Company Actions")
+        log("Loading Company Actions")
         tasks = [
             (lambda t=t, o=obj: self._fetch_actions(t, o))
             for t, obj in self.yf_obj.tickers.items()
@@ -374,7 +374,7 @@ class YahooDataClient:
             Combined dataframe containing all requested financial statements.
         """
         s = statement_type.replace("_", " ").title()
-        logging.log(f"Loading Company {s}")
+        log(f"Loading Company {s}")
         tasks = [
             (lambda t=t, o=obj: self._fetch_financials(t, o, statement_type, annual))
             for t, obj in self.yf_obj.tickers.items()

@@ -1,9 +1,9 @@
 import pandas as pd
-import utils.sql_utils as sql_utils
+import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
 
 
-def get_index_holdings(indices=None, tickers=None, start_date=None):
+def get_index_holdings(indices=None, tickers=None, start_date=None, configs_path=None):
     """
     Retrieve index holdings from the holdings table with optional filters.
 
@@ -54,12 +54,16 @@ def get_index_holdings(indices=None, tickers=None, start_date=None):
     {date_filter}
     """
 
-    df = sql_utils.read_sql_table(query=query, database_name="CODE_CAPITAL")
+    engine = azure_utils.get_azure_engine(
+        configs_path=configs_path
+    )
+
+    df = azure_utils.read_sql_table(engine=engine, query=query)
     df["DATE"] = pd.to_datetime(df["DATE"])
     return df
 
 
-def get_llm_holdings(llms=None, start_date=None):
+def get_llm_holdings(llms=None, start_date=None, configs_path=None):
     """
     Retrieve LLM holdings from the database with optional filters for strategies
     and start date.
@@ -102,6 +106,10 @@ def get_llm_holdings(llms=None, start_date=None):
     {date_filter}
     """
 
-    df = sql_utils.read_sql_table(query=query, database_name="CODE_CAPITAL")
+    engine = azure_utils.get_azure_engine(
+        configs_path=configs_path
+    )
+
+    df = azure_utils.read_sql_table(engine=engine, query=query)
     df["DATE"] = pd.to_datetime(df["DATE"])
     return df

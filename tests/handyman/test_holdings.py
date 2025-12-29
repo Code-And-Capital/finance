@@ -6,7 +6,7 @@ from unittest.mock import patch
 from handyman.holdings import get_index_holdings, get_llm_holdings
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_index_holdings_with_string_inputs(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -31,7 +31,7 @@ def test_get_index_holdings_with_string_inputs(mock_read_sql):
     assert pd.api.types.is_datetime64_any_dtype(df["DATE"])
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_index_holdings_with_list_inputs(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -54,7 +54,7 @@ def test_get_index_holdings_with_list_inputs(mock_read_sql):
     assert "MSFT" in query
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_index_holdings_without_filters(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -74,7 +74,7 @@ def test_get_index_holdings_without_filters(mock_read_sql):
     assert len(df) == 1
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_index_holdings_date_conversion(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -99,7 +99,7 @@ def test_get_index_holdings_invalid_tickers_type_raises():
         get_index_holdings(tickers=123)
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_llm_holdings_with_list(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -119,7 +119,7 @@ def test_get_llm_holdings_with_list(mock_read_sql):
     assert set(df["strategy"]) == {"LLM1", "LLM2"}
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_llm_holdings_with_string(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {"DATE": ["2024-01-01"], "strategy": ["LLM1"], "TICKER": ["AAPL"]}
@@ -132,7 +132,7 @@ def test_get_llm_holdings_with_string(mock_read_sql):
     assert isinstance(df, pd.DataFrame)
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_llm_holdings_with_array_like(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -150,7 +150,7 @@ def test_get_llm_holdings_with_array_like(mock_read_sql):
     assert "LLM3" in query
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_llm_holdings_with_start_date(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {"DATE": ["2024-01-01"], "strategy": ["LLM1"], "TICKER": ["AAPL"]}
@@ -163,7 +163,7 @@ def test_get_llm_holdings_with_start_date(mock_read_sql):
     assert isinstance(df, pd.DataFrame)
 
 
-@patch("handyman.holdings.sql_utils.read_sql_table")
+@patch("handyman.holdings.azure_utils.read_sql_table")
 def test_get_llm_holdings_no_filters(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {"DATE": ["2024-01-01"], "strategy": ["LLM1"], "TICKER": ["AAPL"]}

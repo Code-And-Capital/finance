@@ -1,8 +1,8 @@
-import utils.sql_utils as sql_utils
+import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
 
 
-def find_missing_tickers(database, tickers):
+def find_missing_tickers(database, tickers, configs_path=None):
     """
     Identify which tickers from a provided input are missing in a database table.
 
@@ -44,7 +44,11 @@ def find_missing_tickers(database, tickers):
     )
     """
 
-    df = sql_utils.read_sql_table(query=query, database_name="CODE_CAPITAL")
+    engine = azure_utils.get_azure_engine(
+        configs_path=configs_path
+    )
+
+    df = azure_utils.read_sql_table(engine=engine, query=query)
 
     # Find tickers that are missing from the dataframe
     existing = set(df["TICKER"])
