@@ -89,7 +89,7 @@ profile_default/
 ipython_config.py
 
 # Local config files
-configs/ 
+configs/configs.json
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
