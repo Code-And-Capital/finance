@@ -5,6 +5,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, URL
 
+import finance.utils.configs_reader as configs_reader
 
 # -----------------------------
 # Connection / Engine helpers
@@ -12,10 +13,7 @@ from sqlalchemy.engine import Engine, URL
 
 
 def get_azure_engine(
-    server: Optional[str] = None,
-    database: Optional[str] = None,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
+    configs_path: str,
     driver: str = "ODBC Driver 18 for SQL Server",
     encrypt: bool = True,
     trust_server_certificate: bool = False,
@@ -26,10 +24,7 @@ def get_azure_engine(
     Create a SQLAlchemy Engine for Azure SQL Database via pyodbc.
 
     Args:
-        server: Azure SQL server host, e.g. "yourserver.database.windows.net"
-        database: Database name
-        username: SQL login username
-        password: SQL login password
+        configs_path: Path to the JSON config file
         driver: ODBC driver name installed on your machine
         encrypt: Should be True for Azure SQL
         trust_server_certificate: Normally False
@@ -39,23 +34,28 @@ def get_azure_engine(
     Returns:
         SQLAlchemy Engine
     """
-    server = server or os.getenv("AZ_SERVER")
-    database = database or os.getenv("AZ_DB")
-    username = username or os.getenv("AZ_USER")
-    password = password or os.getenv("AZ_PASSWORD")
 
-    if not all([server, database, username, password]):
-        missing = [
-            k
-            for k, v in {
-                "server (AZ_SERVER)": server,
-                "database (AZ_DB)": database,
-                "username (AZ_USER)": username,
-                "password (AZ_PASSWORD)": password,
-            }.items()
-            if not v
-        ]
-        raise ValueError(f"Missing Azure SQL connection settings: {', '.join(missing)}")
+    configs = configs_reader.read_json_configs(configs_path)
+
+    try:
+            azure_cfg = configs["azure"]
+    except KeyError as e:
+        raise KeyError('Config missing required top-level key "azure".') from e
+
+    server = azure_cfg.get("server")
+    database = azure_cfg.get("database")
+    username = azure_cfg.get("username")
+    password = azure_cfg.get("password")
+
+    missing = [k for k, v in {
+        "azure.server": server,
+        "azure.database": database,
+        "azure.username": username,
+        "azure.password": password,
+    }.items() if not v]
+
+    if missing:
+        raise ValueError(f"Missing Azure SQL connection settings in config: {', '.join(missing)}")
 
     conn_str = (
         f"Driver={{{driver}}};"
