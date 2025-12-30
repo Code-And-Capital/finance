@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from datetime import date
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -12,7 +13,7 @@ from utils.yfinance_utils import (
 )
 
 
-@patch("utils.yfinance_utils.sql_utils.read_sql_table")
+@patch("utils.yfinance_utils.azure_utils.read_sql_table")
 @patch("utils.yfinance_utils.add_missing_tickers")
 @patch("utils.yfinance_utils.dataframe_utils.df_to_dict")
 @patch("utils.yfinance_utils.yahoo_finance.YahooDataClient")
@@ -54,7 +55,7 @@ def test_pull_prices_happy_path(
     assert result.loc[0, "AAPL"] == 100
 
 
-@patch("utils.yfinance_utils.sql_utils.read_sql_table")
+@patch("utils.yfinance_utils.azure_utils.read_sql_table")
 @patch("utils.yfinance_utils.add_missing_tickers")
 @patch("utils.yfinance_utils.dataframe_utils.df_to_dict")
 def test_pull_prices_with_array_like_input(
@@ -77,7 +78,13 @@ def test_pull_prices_with_array_like_input(
 
     # Provide a dummy client to avoid Yahoo API calls
     dummy_client = MagicMock()
-    dummy_client.get_prices.return_value = pd.DataFrame()
+    dummy_client.get_prices.return_value = pd.DataFrame(
+        {
+            "TICKER": ["AAPL", "MSFT"],
+            "DATE": ["2024-01-02", "2024-01-03"],
+            "ADJ_CLOSE": [150.0, 300.0],
+        }
+    )
 
     result = pull_prices(tickers, client=dummy_client)
     assert isinstance(result, pd.DataFrame)
@@ -132,6 +139,8 @@ def make_mock_client_fin():
     client.get_financials.return_value = pd.DataFrame(
         {
             "TICKER": ["AAPL", "MSFT"],
+            "DATE": ["2024-01-02", "2024-01-02"],
+            "REPORT_DATE": ["2023-12-31", "2023-12-31"],
             "metric": ["revenue", "revenue"],
             "value": [100, 200],
         }
@@ -194,7 +203,15 @@ def test_pull_financials_invalid_statement_type_raises():
 @patch("utils.yfinance_utils.yahoo_finance.YahooDataClient")
 def test_pull_financials_creates_client_if_missing(mock_client_class):
     mock_client = MagicMock()
-    mock_client.get_financials.return_value = pd.DataFrame({"a": [1]})
+    mock_client.get_financials.return_value = pd.DataFrame(
+        {
+            "TICKER": ["AAPL", "MSFT"],
+            "DATE": ["2024-01-02", "2024-01-02"],
+            "REPORT_DATE": ["2023-12-31", "2023-12-31"],
+            "metric": ["revenue", "revenue"],
+            "value": [100, 200],
+        }
+    )
     mock_client_class.return_value = mock_client
 
     df = pull_financials(tickers="AAPL")
@@ -209,6 +226,7 @@ def make_mock_client_info():
     client.get_company_info.return_value = pd.DataFrame(
         {
             "TICKER": ["AAPL", "MSFT"],
+            "DATE": ["2024-01-02", "2024-01-02"],
             "employees": [100000, 200000],
             "sector": ["Tech", "Tech"],
         }
@@ -224,8 +242,6 @@ def test_pull_info_with_injected_client():
     client.get_company_info.assert_called_once()
     assert isinstance(df, pd.DataFrame)
 
-    # Ensure everything is string-typed
-    assert df.dtypes.nunique() == 1
     assert df.dtypes.iloc[0] == object
 
 
@@ -241,14 +257,29 @@ def test_pull_info_creates_client_if_missing(mock_create_client):
     assert isinstance(df, pd.DataFrame)
 
 
-def test_pull_info_casts_all_values_to_string():
-    client = make_mock_client_info()
+def test_pull_info_list_to_nan():
+    # Mock client with get_company_info returning a controlled DataFrame
+    mock_client = MagicMock()
+    mock_client.get_company_info.return_value = pd.DataFrame(
+        {
+            "TICKER": ["AAPL", "MSFT", "GOOGL"],
+            "DATE": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "VALUE": [100, [1, 2, 3], "text"],
+        }
+    )
 
-    df = pull_info(tickers="AAPL", client=client)
+    result = pull_info(tickers=["AAPL", "MSFT", "GOOGL"], client=mock_client)
 
-    # Spot-check a numeric column
-    assert isinstance(df.loc[0, "employees"], str)
-    assert df.loc[0, "employees"] == "100000"
+    # Check that the DATE column was converted to date objects
+    assert pd.api.types.is_object_dtype(result["DATE"])
+    assert isinstance(result["DATE"].iloc[0], date)
+
+    # Check that the list in VALUE column became np.nan
+    assert np.isnan(result["VALUE"].iloc[1])
+
+    # Other values remain unchanged
+    assert result["VALUE"].iloc[0] == 100
+    assert result["VALUE"].iloc[2] == "text"
 
 
 def make_mock_client_officer():
@@ -256,6 +287,7 @@ def make_mock_client_officer():
     client.get_officer_info.return_value = pd.DataFrame(
         {
             "TICKER": ["AAPL", "MSFT"],
+            "DATE": ["2024-01-02", "2024-01-02"],
             "name": ["Tim Cook", "Satya Nadella"],
             "title": ["CEO", "CEO"],
         }

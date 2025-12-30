@@ -4,7 +4,7 @@ from unittest.mock import patch
 from handyman.prices import get_prices
 
 
-@patch("handyman.prices.sql_utils.read_sql_table")
+@patch("handyman.prices.azure_utils.read_sql_table")
 def test_get_prices_returns_pivoted_dataframe(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -28,7 +28,7 @@ def test_get_prices_returns_pivoted_dataframe(mock_read_sql):
     assert result.loc[pd.Timestamp("2024-01-02"), "AAPL"] == 101.0
 
 
-@patch("handyman.prices.sql_utils.read_sql_table")
+@patch("handyman.prices.azure_utils.read_sql_table")
 def test_get_prices_converts_date_to_datetime(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -43,7 +43,7 @@ def test_get_prices_converts_date_to_datetime(mock_read_sql):
     assert isinstance(result.index, pd.DatetimeIndex)
 
 
-@patch("handyman.prices.sql_utils.read_sql_table")
+@patch("handyman.prices.azure_utils.read_sql_table")
 def test_get_prices_builds_correct_sql_query(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {
@@ -62,7 +62,7 @@ def test_get_prices_builds_correct_sql_query(mock_read_sql):
     assert "DATE >= '2024-01-01'" in query
 
 
-@patch("handyman.prices.sql_utils.read_sql_table")
+@patch("handyman.prices.azure_utils.read_sql_table")
 def test_get_prices_missing_values_are_nan(mock_read_sql):
     mock_read_sql.return_value = pd.DataFrame(
         {

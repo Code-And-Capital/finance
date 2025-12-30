@@ -1,9 +1,9 @@
 import pandas as pd
-import utils.sql_utils as sql_utils
+import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
 
 
-def get_prices(tickers, start_date=None):
+def get_prices(tickers, start_date=None, configs_path=None):
     """
     Retrieve adjusted close price history for a set of tickers and return it
     as a wide time-series DataFrame.
@@ -51,7 +51,9 @@ def get_prices(tickers, start_date=None):
     {date_filter}
     """
 
-    prices = sql_utils.read_sql_table(query=prices_query, database_name="CODE_CAPITAL")
+    engine = azure_utils.get_azure_engine(configs_path=configs_path)
+
+    prices = azure_utils.read_sql_table(engine=engine, query=prices_query)
     prices["DATE"] = pd.to_datetime(prices["DATE"])
     prices = prices.pivot(index="DATE", columns="TICKER", values="ADJ_CLOSE")
     prices = prices.ffill().where(prices[::-1].notna().cummax()[::-1])

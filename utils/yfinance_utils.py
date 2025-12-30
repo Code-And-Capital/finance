@@ -1,7 +1,8 @@
 import data_loader.yahoo_finance as yahoo_finance
 import utils.dataframe_utils as dataframe_utils
-import utils.sql_utils as sql_utils
+import utils.azure_utils as azure_utils
 import pandas as pd
+import numpy as np
 from pandas.tseries.offsets import BDay
 from utils.dataframe_utils import add_missing_tickers
 from utils.list_utils import normalize_to_list
@@ -40,7 +41,7 @@ def create_client(tickers, max_workers: int = 10):
     return client
 
 
-def pull_prices(tickers, client=None):
+def pull_prices(tickers, client=None, configs_path=None):
     """
     Retrieve historical adjusted prices for a list of tickers starting from
     the next business day after the last date available in the database.
@@ -71,13 +72,18 @@ def pull_prices(tickers, client=None):
     if not client:
         client = create_client(tickers=tickers)
 
-    query = """
+    ticker_str = "', '".join(tickers)
+
+    query = f"""
     SELECT TICKER, MAX(DATE) AS START_DATE
     FROM prices
+    WHERE TICKER IN ('{ticker_str}')
     GROUP BY TICKER
     """
 
-    max_dates = sql_utils.read_sql_table(query=query, database_name="CODE_CAPITAL")
+    engine = azure_utils.get_azure_engine(configs_path=configs_path)
+
+    max_dates = azure_utils.read_sql_table(engine=engine, query=query)
     max_dates["START_DATE"] = pd.to_datetime(max_dates["START_DATE"])
     max_dates["START_DATE"] = max_dates["START_DATE"] + BDay(1)
 
@@ -88,6 +94,7 @@ def pull_prices(tickers, client=None):
     )
 
     all_prices = client.get_prices(start_date=start_date_mapping)
+    all_prices["DATE"] = pd.to_datetime(all_prices["DATE"]).dt.date
     return all_prices
 
 
@@ -149,6 +156,8 @@ def pull_financials(
         annual=annual,
         statement_type=statement_type,
     )
+    df["DATE"] = pd.to_datetime(df["DATE"]).dt.date
+    df["REPORT_DATE"] = pd.to_datetime(df["REPORT_DATE"]).dt.date
 
     return df
 
@@ -182,7 +191,8 @@ def pull_info(tickers, client=None):
         client = create_client(tickers=tickers)
 
     df = client.get_company_info()
-    df = df.map(str)
+    df["DATE"] = pd.to_datetime(df["DATE"]).dt.date
+    df = df.map(lambda x: np.nan if isinstance(x, list) else x)
 
     return df
 
@@ -215,4 +225,5 @@ def pull_officers(tickers, client=None):
         client = create_client(tickers=tickers)
 
     df = client.get_officer_info()
+    df["DATE"] = pd.to_datetime(df["DATE"]).dt.date
     return df

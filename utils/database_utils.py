@@ -2,7 +2,7 @@ import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
 
 
-def find_missing_tickers(database, tickers, configs_path=None):
+def find_missing_tickers(table_name, tickers, configs_path=None):
     """
     Identify which tickers from a provided input are missing in a database table.
 
@@ -12,7 +12,7 @@ def find_missing_tickers(database, tickers, configs_path=None):
 
     Parameters
     ----------
-    database : str
+    table_name : str
         Name of the database table to query.
     tickers : str, sequence of str, or array-like
         Ticker(s) to check. Strings are treated as single tickers; sequences
@@ -32,16 +32,19 @@ def find_missing_tickers(database, tickers, configs_path=None):
     tickers = normalize_to_list(tickers)
 
     query = f"""
-    SELECT DISTINCT TICKER
-    FROM {database}
-    WHERE DATE >= (
-        SELECT DATE
-        FROM {database}
-        GROUP BY DATE
-        HAVING COUNT(*) > 10
-        ORDER BY DATE DESC
-        LIMIT 1
-    )
+        WITH cutoff_date AS (
+            SELECT MAX([DATE]) AS max_date
+            FROM (
+                SELECT [DATE]
+                FROM {table_name}
+                GROUP BY [DATE]
+                HAVING COUNT(*) > 50
+            ) d
+        )
+        SELECT DISTINCT ci.TICKER
+        FROM {table_name} ci
+        CROSS JOIN cutoff_date cd
+        WHERE ci.[DATE] >= cd.max_date;
     """
 
     engine = azure_utils.get_azure_engine(configs_path=configs_path)
