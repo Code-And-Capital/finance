@@ -1,9 +1,10 @@
-import os
 from typing import Optional, Dict
 
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy import types as satypes
 from sqlalchemy.engine import Engine, URL
+from sqlalchemy.sql.type_api import TypeEngine
 
 import utils.configs_reader as configs_reader
 
@@ -23,16 +24,25 @@ def get_azure_engine(
     """
     Create a SQLAlchemy Engine for Azure SQL Database via pyodbc.
 
-    Args:
-        configs_path: Path to the JSON config file
-        driver: ODBC driver name installed on your machine
-        encrypt: Should be True for Azure SQL
-        trust_server_certificate: Normally False
-        connection_timeout: ODBC connection timeout seconds
-        fast_executemany: Improves bulk insert performance
+    Parameters
+    ----------
+    configs_path : str
+        Path to the JSON configuration file.
+    driver : str, default "ODBC Driver 18 for SQL Server"
+        ODBC driver installed on the system.
+    encrypt : bool, default True
+        Whether to require encrypted connections (recommended for Azure SQL).
+    trust_server_certificate : bool, default False
+        Whether to trust the server certificate.
+    connection_timeout : int, default 30
+        Connection timeout in seconds.
+    fast_executemany : bool, default True
+        Enable pyodbc fast_executemany for bulk inserts.
 
-    Returns:
-        SQLAlchemy Engine
+    Returns
+    -------
+    sqlalchemy.engine.Engine
+        SQLAlchemy engine connected to Azure SQL.
     """
     if not configs_path:
         configs_path = os.path.abspath(
@@ -88,32 +98,8 @@ def get_azure_engine(
 
 
 # -----------------------------
-# Type inference for new columns
+# Helpers
 # -----------------------------
-
-
-def _infer_sqlserver_type(series: pd.Series) -> str:
-    """
-    Infer a reasonable SQL Server type for a pandas Series. Used only when
-    adding new columns
-
-    Biased toward types that are safe and broadly compatible.
-    """
-    dtype = series.dtype
-
-    if pd.api.types.is_integer_dtype(dtype):
-        return "BIGINT"
-    if pd.api.types.is_float_dtype(dtype):
-        return "FLOAT"
-    if pd.api.types.is_bool_dtype(dtype):
-        return "BIT"
-    if pd.api.types.is_datetime64_any_dtype(dtype):
-        return "DATETIME2"
-    if pd.api.types.is_timedelta64_dtype(dtype):
-        return "BIGINT"
-
-    # object/string/category fallback
-    return "NVARCHAR(MAX)"
 
 
 def _quote_ident(name: str) -> str:
@@ -125,6 +111,16 @@ def _quote_ident(name: str) -> str:
 
     This function wraps the identifier in SQL Server brackets and escapes
     any closing bracket characters.
+
+    Parameters
+    ----------
+    name : str
+        Identifier to quote (e.g., schema, table, column).
+
+    Returns
+    -------
+    str
+        Quoted identifier (e.g., "[MyColumn]").
 
     Examples
     --------
@@ -146,6 +142,48 @@ def _quote_ident(name: str) -> str:
     return "[" + name.replace("]", "]]") + "]"
 
 
+def ensure_index(
+    engine: Engine,
+    table_name: str,
+    index_name: str,
+    columns: list[str],
+    schema: str = "dbo",
+) -> None:
+    """
+    Create an index if it doesn't already exist (safe to rerun)
+
+    Use after creating/replacing a table (e.g., when overwrite=True). SQL Server
+    will automatically maintain the index on future inserts/updates/deletes.
+
+    Parameters
+    ----------
+    engine : sqlalchemy.engine.Engine
+        SQLAlchemy engine connected to Azure SQL.
+    table_name : str
+        Target table name (without schema).
+    index_name : str
+        Name of the index to create.
+    columns : list[str]
+        Column names to use as the index key, in order (e.g. ["TICKER", "DATE"]).
+    schema : str, default "dbo"
+        Schema name.
+    """
+    cols_sql = ", ".join(_quote_ident(c) for c in columns)
+    index_query = f"""
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE name = '{index_name}'
+          AND object_id = OBJECT_ID('{schema}.{table_name}')
+    )
+    BEGIN
+        CREATE INDEX {index_name}
+        ON {_quote_ident(schema)}.{_quote_ident(table_name)} ({cols_sql});
+    END
+    """
+    execute_sql(engine, index_query)
+
+
 # -----------------------------
 # Core utilities
 # -----------------------------
@@ -158,18 +196,23 @@ def write_sql_table(
     schema: str = "dbo",
     overwrite: bool = False,
     chunksize: Optional[int] = 1000,
+    dtype_overrides: Optional[Dict[str, TypeEngine]] = None,
+    index_spec: Optional[dict] = None,
 ) -> None:
     """
-    Write a pandas DataFrame to an Azure SQL table.
+    Write a pandas DataFrame to an Azure SQL / SQL Server table.
 
-    If `overwrite=True`, the table is dropped and recreated.
-    Otherwise, the table is created if missing, new columns are added
-    as needed, and rows are appended.
+    Behavior
+    --------
+    - overwrite=False (default): Append rows to an existing table.
+    - overwrite=True: Drop and recreate the table, then insert rows.
+        * Allows explicit column types via `dtype_overrides` during table creation.
+        * Optionally creates indexes via `index_spec` after table creation.
 
     Parameters
     ----------
     engine : sqlalchemy.engine.Engine
-        SQLAlchemy engine connected to Azure SQL.
+        SQLAlchemy engine connected to Azure SQL / SQL Server.
     table_name : str
         Target table name (without schema).
     df : pandas.DataFrame
@@ -177,15 +220,23 @@ def write_sql_table(
     schema : str, default "dbo"
         SQL schema.
     overwrite : bool, default False
-        Drop and recreate the table before writing.
+        If True, drop and recreate the table (replace). If False, append.
     chunksize : int or None, default 1000
         Batch size for inserts.
+    dtype_overrides : dict or None, default None
+        Optional mapping of column name -> SQLAlchemy type, used only when
+        overwrite=True (table creation). Example:
+            {"TICKER": satypes.VARCHAR(16),
+             "DATE": satypes.Date()}
+        Any keys not present in `df.columns` are ignored.
+    index_spec : dict or None, default None
+        Optional index specification to create after overwrite=True.
+        Format: {"name": "<index_name>", "columns": ["col1", "col2", ...]}.
 
     Notes
     -----
-    - New columns are added via `ALTER TABLE` with inferred SQL Server types.
-    - Operations that modify schema are executed inside a transaction.
-    - No action is taken if the DataFrame is empty.
+    - Indexes are maintained automatically by SQL Server after creation.
+    - If df is empty, no action is taken.
     """
     if df is None or df.empty:
         return
@@ -193,6 +244,11 @@ def write_sql_table(
     df = df.copy()
     df.columns = [str(c) for c in df.columns]
 
+    dtype_map = None
+    if dtype_overrides:
+        dtype_map = {k: v for k, v in dtype_overrides.items() if k in df.columns}
+
+    # Create or replace table
     if overwrite:
         df.to_sql(
             table_name,
@@ -201,58 +257,21 @@ def write_sql_table(
             if_exists="replace",
             index=False,
             chunksize=chunksize,
+            dtype=dtype_map,
         )
+
+        # Ensure specified index exists, otherwise, create it
+        if index_spec:
+            ensure_index(
+                engine=engine,
+                table_name=table_name,
+                schema=schema,
+                index_name=index_spec["name"],
+                columns=index_spec["columns"],
+            )
         return
 
-    # Check table exists + add missing columns
-    with engine.begin() as conn:
-        table_exists = (
-            conn.execute(
-                text(
-                    """
-                SELECT 1
-                FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
-            """
-                ),
-                {"schema": schema, "table": table_name},
-            ).scalar()
-            is not None
-        )
-
-        if table_exists:
-            existing_cols = {
-                r[0]
-                for r in conn.execute(
-                    text(
-                        """
-                        SELECT COLUMN_NAME
-                        FROM INFORMATION_SCHEMA.COLUMNS
-                        WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table
-                    """
-                    ),
-                    {"schema": schema, "table": table_name},
-                ).fetchall()
-            }
-
-            missing_cols = [c for c in df.columns if c not in existing_cols]
-            for col in missing_cols:
-                sql_type = _infer_sqlserver_type(df[col])
-                conn.exec_driver_sql(
-                    f"ALTER TABLE {_quote_ident(schema)}.{_quote_ident(table_name)} "
-                    f"ADD {_quote_ident(col)} {sql_type} NULL;"
-                )
-
-    # Write rows
-    if not table_exists:
-        df.to_sql(
-            table_name,
-            engine,
-            schema=schema,
-            if_exists="replace",
-            index=False,
-            chunksize=chunksize,
-        )
+    # Append to existing table
     else:
         df.to_sql(
             table_name,
@@ -278,15 +297,23 @@ def read_sql_table(
       - table_name -> SELECT * FROM schema.table_name
       - query -> any SQL query
 
-    Args:
-        engine: SQLAlchemy Engine
-        table_name: Table name (optional)
-        query: SQL query (optional; ignored if table_name provided)
-        schema: Schema name
-        coerce_numeric: Attempt to convert columns to numeric where possible (sqlite-like behavior)
+    Parameters
+    ----------
+    engine : sqlalchemy.engine.Engine
+        SQLAlchemy engine.
+    table_name : str, optional
+        Table name to read from. If provided, `query` is ignored.
+    query : str, optional
+        SQL query to execute.
+    schema : str, default "dbo"
+        Schema name.
+    coerce_numeric : bool, default True
+        Attempt to coerce columns to numeric types where possible.
 
-    Returns:
-        DataFrame
+    Returns
+    -------
+    pandas.DataFrame
+        Query results.
     """
     if table_name:
         query = f"SELECT * FROM {_quote_ident(schema)}.{_quote_ident(table_name)}"
@@ -315,11 +342,17 @@ def delete_sql_rows(
     """
     Delete rows from an Azure SQL table based on a WHERE clause.
 
-    Args:
-        engine: SQLAlchemy Engine
-        table_name: Table name
-        where_clause: e.g. "asof_date < '2020-01-01'" or "ticker = 'AAPL'"
-        schema: Schema name
+    Parameters
+    ----------
+    engine : sqlalchemy.engine.Engine
+        SQLAlchemy engine connected to Azure SQL / SQL Server.
+    table_name : str
+        Target table name (without schema).
+    where_clause : str
+        SQL WHERE clause (without the "WHERE" keyword), e.g.
+        "asof_date < '2020-01-01'" or "ticker = 'AAPL'".
+    schema : str, default "dbo"
+        Schema name.
     """
     if not where_clause or not where_clause.strip():
         raise ValueError(
@@ -340,6 +373,15 @@ def execute_sql(
     Execute an arbitrary SQL statement inside a transaction.
 
     Useful for one-off DDL (CREATE TABLE, CREATE INDEX, etc.).
+
+    Parameters
+    ----------
+    engine : sqlalchemy.engine.Engine
+        SQLAlchemy engine.
+    sql : str
+        SQL statement to execute.
+    params : dict, optional
+        Optional bound parameters for the SQL statement.
     """
     with engine.begin() as conn:
         if params:
