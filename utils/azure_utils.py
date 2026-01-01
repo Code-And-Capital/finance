@@ -1,6 +1,7 @@
 from typing import Optional, Dict
 
 import pandas as pd
+import os
 from sqlalchemy import create_engine, text
 from sqlalchemy import types as satypes
 from sqlalchemy.engine import Engine, URL
