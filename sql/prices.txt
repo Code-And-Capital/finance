@@ -1,0 +1,5 @@
+SELECT DATE, TICKER, ADJ_CLOSE
+FROM [dbo].[prices]
+WHERE 1=1
+{ticker_filter}
+{date_filter}

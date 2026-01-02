@@ -3,9 +3,11 @@ import utils.dataframe_utils as dataframe_utils
 import utils.azure_utils as azure_utils
 import pandas as pd
 import numpy as np
+import os
 from pandas.tseries.offsets import BDay
 from utils.dataframe_utils import add_missing_tickers
 from utils.list_utils import normalize_to_list
+from utils.query_utils import render_sql_query
 
 
 def create_client(tickers, max_workers: int = 10):
@@ -41,7 +43,7 @@ def create_client(tickers, max_workers: int = 10):
     return client
 
 
-def pull_prices(tickers, client=None, configs_path=None):
+def pull_prices(tickers=None, client=None, configs_path=None):
     """
     Retrieve historical adjusted prices for a list of tickers starting from
     the next business day after the last date available in the database.
@@ -72,14 +74,25 @@ def pull_prices(tickers, client=None, configs_path=None):
     if not client:
         client = create_client(tickers=tickers)
 
-    ticker_str = "', '".join(tickers)
+    ticker_filter = ""
+    tickers = normalize_to_list(tickers)
+    if tickers:
+        ticker_string = "', '".join(tickers)
+        ticker_filter = f"AND TICKER IN ('{ticker_string}')"
 
-    query = f"""
-    SELECT TICKER, MAX(DATE) AS START_DATE
-    FROM prices
-    WHERE TICKER IN ('{ticker_str}')
-    GROUP BY TICKER
-    """
+    query_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "..",
+            "sql",
+            "max_date.txt",
+        )
+    )
+
+    query = render_sql_query(
+        query_path=query_path,
+        filters={"ticker_filter": ticker_filter, "table_name": "prices"},
+    )
 
     engine = azure_utils.get_azure_engine(configs_path=configs_path)
 

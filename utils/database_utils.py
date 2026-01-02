@@ -1,5 +1,7 @@
+import os
 import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
+from utils.query_utils import render_sql_query
 
 
 def find_missing_tickers(table_name, tickers, configs_path=None):
@@ -7,7 +9,7 @@ def find_missing_tickers(table_name, tickers, configs_path=None):
     Identify which tickers from a provided input are missing in a database table.
 
     The function queries the database for all distinct tickers appearing since
-    the most recent date where more than 10 tickers were present. It then
+    the most recent date where more than 50 tickers were present. It then
     returns the subset of `tickers` that are not found in the database.
 
     Parameters
@@ -30,22 +32,22 @@ def find_missing_tickers(table_name, tickers, configs_path=None):
     """
 
     tickers = normalize_to_list(tickers)
+    ticker_string = "', '".join(tickers)
+    ticker_filter = f"AND TICKER IN ('{ticker_string}')"
 
-    query = f"""
-        WITH cutoff_date AS (
-            SELECT MAX([DATE]) AS max_date
-            FROM (
-                SELECT [DATE]
-                FROM {table_name}
-                GROUP BY [DATE]
-                HAVING COUNT(*) > 50
-            ) d
+    query_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "..",
+            "sql",
+            "missing_tickers.txt",
         )
-        SELECT DISTINCT ci.TICKER
-        FROM {table_name} ci
-        CROSS JOIN cutoff_date cd
-        WHERE ci.[DATE] >= cd.max_date;
-    """
+    )
+
+    query = render_sql_query(
+        query_path=query_path,
+        filters={"ticker_filter": ticker_filter, "table_name": table_name},
+    )
 
     engine = azure_utils.get_azure_engine(configs_path=configs_path)
 

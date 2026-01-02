@@ -1,0 +1,14 @@
+WITH cutoff_date AS (
+    SELECT MAX([DATE]) AS max_date
+    FROM (
+        SELECT [DATE]
+        FROM [dbo].[{table_name}]
+        GROUP BY [DATE]
+        HAVING COUNT(*) > 50
+    ) d
+)
+SELECT DISTINCT mt.TICKER
+FROM [dbo].[{table_name}] mt
+CROSS JOIN cutoff_date cd
+WHERE mt.[DATE] >= cd.max_date
+{ticker_filter};

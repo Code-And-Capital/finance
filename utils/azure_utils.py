@@ -8,6 +8,7 @@ from sqlalchemy.engine import Engine, URL
 from sqlalchemy.sql.type_api import TypeEngine
 
 import utils.configs_reader as configs_reader
+from utils.query_utils import render_sql_query
 
 # -----------------------------
 # Connection / Engine helpers
@@ -170,18 +171,28 @@ def ensure_index(
         Schema name.
     """
     cols_sql = ", ".join(_quote_ident(c) for c in columns)
-    index_query = f"""
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.indexes
-        WHERE name = '{index_name}'
-          AND object_id = OBJECT_ID('{schema}.{table_name}')
+    schema = _quote_ident(schema)
+    table_name = _quote_ident(table_name)
+
+    query_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "..",
+            "sql",
+            "prices.txt",
+        )
     )
-    BEGIN
-        CREATE INDEX {index_name}
-        ON {_quote_ident(schema)}.{_quote_ident(table_name)} ({cols_sql});
-    END
-    """
+
+    index_query = render_sql_query(
+        query_path=query_path,
+        filters={
+            "index_name": index_name,
+            "schema": schema,
+            "table_name": table_name,
+            "cols_sql": cols_sql,
+        },
+    )
+
     execute_sql(engine, index_query)
 
 
@@ -317,7 +328,21 @@ def read_sql_table(
         Query results.
     """
     if table_name:
-        query = f"SELECT * FROM {_quote_ident(schema)}.{_quote_ident(table_name)}"
+        schema = _quote_ident(schema)
+        table_name = _quote_ident(table_name)
+
+        query_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(os.path.realpath(__file__)),
+                "..",
+                "sql",
+                "base.txt",
+            )
+        )
+
+        query = render_sql_query(
+            query_path=query_path, filters={"schema": schema, "table_name": table_name}
+        )
 
     if not query:
         raise ValueError("You must provide either table_name or query.")

@@ -1,0 +1,2 @@
+SELECT *
+from {schema}.{table_name}

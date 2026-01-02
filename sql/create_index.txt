@@ -1,0 +1,10 @@
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = '{index_name}'
+        AND object_id = OBJECT_ID('{schema}.{table_name}')
+)
+BEGIN
+    CREATE INDEX {index_name}
+    ON {schema}.{table_name} ({cols_sql});
+END

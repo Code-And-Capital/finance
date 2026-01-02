@@ -1,6 +1,8 @@
 import pandas as pd
+import os
 import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
+from utils.query_utils import render_sql_query
 
 
 def get_index_holdings(indices=None, tickers=None, start_date=None, configs_path=None):
@@ -45,14 +47,23 @@ def get_index_holdings(indices=None, tickers=None, start_date=None, configs_path
     if start_date:
         date_filter = f"AND DATE >= '{start_date}'"
 
-    query = f"""
-    SELECT *
-    FROM holdings
-    WHERE 1=1
-    {index_filter}
-    {ticker_filter}
-    {date_filter}
-    """
+    query_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "..",
+            "sql",
+            "holdings.txt",
+        )
+    )
+
+    query = render_sql_query(
+        query_path=query_path,
+        filters={
+            "ticker_filter": ticker_filter,
+            "date_filter": date_filter,
+            "index_filter": index_filter,
+        },
+    )
 
     engine = azure_utils.get_azure_engine(configs_path=configs_path)
 
@@ -96,13 +107,19 @@ def get_llm_holdings(llms=None, start_date=None, configs_path=None):
     if start_date:
         date_filter = f"AND DATE >= '{start_date}'"
 
-    query = f"""
-    SELECT *
-    FROM LLM
-    WHERE 1=1
-    {llm_filter}
-    {date_filter}
-    """
+    query_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "..",
+            "sql",
+            "llm_holdings.txt",
+        )
+    )
+
+    query = render_sql_query(
+        query_path=query_path,
+        filters={"llm_filter": llm_filter, "date_filter": date_filter},
+    )
 
     engine = azure_utils.get_azure_engine(configs_path=configs_path)
 

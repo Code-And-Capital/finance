@@ -1,0 +1,5 @@
+SELECT *
+FROM [dbo].[llm]
+WHERE 1=1
+{llm_filter}
+{date_filter}

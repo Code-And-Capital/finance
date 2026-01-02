@@ -1,6 +1,8 @@
 import pandas as pd
+import os
 import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
+from utils.query_utils import render_sql_query
 
 
 def get_company_info(tickers=None, start_date=None, configs_path=None):
@@ -40,13 +42,19 @@ def get_company_info(tickers=None, start_date=None, configs_path=None):
     if start_date:
         date_filter = f"AND DATE >= '{start_date}'"
 
-    query = f"""
-    SELECT *
-    FROM company_info
-    WHERE 1=1
-    {ticker_filter}
-    {date_filter}
-    """
+    query_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "..",
+            "sql",
+            "company_info.txt",
+        )
+    )
+
+    query = render_sql_query(
+        query_path=query_path,
+        filters={"ticker_filter": ticker_filter, "date_filter": date_filter},
+    )
 
     engine = azure_utils.get_azure_engine(configs_path=configs_path)
 

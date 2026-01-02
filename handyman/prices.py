@@ -1,9 +1,11 @@
 import pandas as pd
+import os
 import utils.azure_utils as azure_utils
 from utils.list_utils import normalize_to_list
+from utils.query_utils import render_sql_query
 
 
-def get_prices(tickers, start_date=None, configs_path=None):
+def get_prices(tickers=None, start_date=None, configs_path=None):
     """
     Retrieve adjusted close price history for a set of tickers and return it
     as a wide time-series DataFrame.
@@ -41,20 +43,29 @@ def get_prices(tickers, start_date=None, configs_path=None):
     if start_date:
         date_filter = f"AND DATE >= '{start_date}'"
 
-    sec_string = "', '".join(tickers)
+    ticker_filter = ""
+    if tickers:
+        ticker_string = "', '".join(tickers)
+        ticker_filter = f"AND TICKER IN ('{ticker_string}')"
 
-    prices_query = f"""
-    SELECT DATE, TICKER, ADJ_CLOSE
-    FROM prices
-    WHERE 1=1
-    AND TICKER IN ('{sec_string}')
-    {date_filter}
-    """
+    query_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "..",
+            "sql",
+            "prices.txt",
+        )
+    )
+
+    query = render_sql_query(
+        query_path=query_path,
+        filters={"ticker_filter": ticker_filter, "date_filter": date_filter},
+    )
 
     engine = azure_utils.get_azure_engine(configs_path=configs_path)
 
-    prices = azure_utils.read_sql_table(engine=engine, query=prices_query)
-    prices["DATE"] = pd.to_datetime(prices["DATE"])
-    prices = prices.pivot(index="DATE", columns="TICKER", values="ADJ_CLOSE")
-    prices = prices.ffill().where(prices[::-1].notna().cummax()[::-1])
-    return prices
+    df = azure_utils.read_sql_table(engine=engine, query=query)
+    df["DATE"] = pd.to_datetime(df["DATE"])
+    df = df.pivot(index="DATE", columns="TICKER", values="ADJ_CLOSE")
+    df = df.ffill().where(df[::-1].notna().cummax()[::-1])
+    return df

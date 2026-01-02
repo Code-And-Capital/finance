@@ -1,0 +1,6 @@
+SELECT *
+FROM [dbo].[holdings]
+WHERE 1=1
+{index_filter}
+{ticker_filter}
+{date_filter}

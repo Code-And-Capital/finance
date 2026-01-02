@@ -1,0 +1,5 @@
+SELECT TICKER, MAX(DATE) AS START_DATE
+FROM [dbo].[{table_name}]
+WHERE 1=1
+{ticker_filter}
+GROUP BY TICKER
