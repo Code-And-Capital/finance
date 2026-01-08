@@ -4,7 +4,7 @@ WITH cutoff_date AS (
         SELECT [DATE]
         FROM [dbo].[{table_name}]
         GROUP BY [DATE]
-        HAVING COUNT(*) > 50
+        HAVING COUNT(*) > 500
     ) d
 )
 SELECT DISTINCT mt.TICKER

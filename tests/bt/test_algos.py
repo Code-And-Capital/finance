@@ -386,7 +386,7 @@ def test_run_on_date():
     target = mock.MagicMock()
     target.now = pd.to_datetime("2010-01-01")
 
-    algo = RunOnDate("2010-01-01", "2010-01-02")
+    algo = RunOnDate(["2010-01-01", "2010-01-02"])
     assert algo(target)
 
     target.now = pd.to_datetime("2010-01-02")
@@ -1569,7 +1569,7 @@ def test_not():
     target.temp = {}
 
     # run except on the 1/2/18
-    runOnDateAlgo = RunOnDate(pd.to_datetime("2018-01-02"))
+    runOnDateAlgo = RunOnDate([pd.to_datetime("2018-01-02")])
     notAlgo = Not(runOnDateAlgo)
 
     target.now = pd.to_datetime("2018-01-01")
@@ -1584,10 +1584,10 @@ def test_or():
     target.temp = {}
 
     # run on the 1/2/18
-    runOnDateAlgo = RunOnDate(pd.to_datetime("2018-01-02"))
-    runOnDateAlgo2 = RunOnDate(pd.to_datetime("2018-01-03"))
-    runOnDateAlgo3 = RunOnDate(pd.to_datetime("2018-01-04"))
-    runOnDateAlgo4 = RunOnDate(pd.to_datetime("2018-01-04"))
+    runOnDateAlgo = RunOnDate([pd.to_datetime("2018-01-02")])
+    runOnDateAlgo2 = RunOnDate([pd.to_datetime("2018-01-03")])
+    runOnDateAlgo3 = RunOnDate([pd.to_datetime("2018-01-04")])
+    runOnDateAlgo4 = RunOnDate([pd.to_datetime("2018-01-04")])
 
     orAlgo = Or([runOnDateAlgo, runOnDateAlgo2, runOnDateAlgo3, runOnDateAlgo4])
 

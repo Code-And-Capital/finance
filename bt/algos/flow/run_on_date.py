@@ -25,7 +25,7 @@ class RunOnDate(Algo):
         RunOnDate(datetime(2025,1,1), datetime(2025,6,30))
     """
 
-    def __init__(self, *dates: Union[str, pd.Timestamp, Any]):
+    def __init__(self, dates: Union[str, pd.Timestamp, Any]):
         """
         Initialize RunOnDate with a list of dates.
 
@@ -37,7 +37,7 @@ class RunOnDate(Algo):
             into pandas.Timestamp internally.
         """
         super().__init__()
-        self.dates: List[pd.Timestamp] = [pd.to_datetime(d) for d in dates]
+        self.dates = [pd.to_datetime(d) for d in dates]
 
     def __call__(self, target: Any) -> bool:
         """
