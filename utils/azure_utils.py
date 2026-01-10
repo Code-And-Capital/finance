@@ -210,7 +210,7 @@ def write_sql_table(
     chunksize: Optional[int] = 1000,
     dtype_overrides: Optional[Dict[str, TypeEngine]] = None,
     index_spec: Optional[dict] = None,
-    align_missing_to_table: bool = False,
+    align_missing_to_table: bool = True,
 ) -> None:
     """
     Write a pandas DataFrame to an Azure SQL / SQL Server table.
