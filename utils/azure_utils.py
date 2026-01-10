@@ -2,7 +2,7 @@ from typing import Optional, Dict
 
 import pandas as pd
 import os
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy import types as satypes
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.sql.type_api import TypeEngine
@@ -210,6 +210,7 @@ def write_sql_table(
     chunksize: Optional[int] = 1000,
     dtype_overrides: Optional[Dict[str, TypeEngine]] = None,
     index_spec: Optional[dict] = None,
+    align_missing_to_table: bool = False,
 ) -> None:
     """
     Write a pandas DataFrame to an Azure SQL / SQL Server table.
@@ -244,6 +245,11 @@ def write_sql_table(
     index_spec : dict or None, default None
         Optional index specification to create after overwrite=True.
         Format: {"name": "<index_name>", "columns": ["col1", "col2", ...]}.
+    align_missing_to_table : bool, default False
+        When appending (overwrite=False), if the target table already exists and has
+        columns that are missing in `df`, add them as nulls and reorder columns to
+        match the table schema. Extra columns in `df` that are not in the table are
+        dropped.
 
     Notes
     -----
@@ -255,6 +261,25 @@ def write_sql_table(
 
     df = df.copy()
     df.columns = [str(c) for c in df.columns]
+
+    # Logic to handle columns that are missing in the new data but exist in the table
+    if align_missing_to_table and not overwrite:
+        inspector = inspect(engine)
+        try:
+            table_cols = [
+                col["name"]
+                for col in inspector.get_columns(table_name, schema=schema)
+            ]
+        except Exception:
+            table_cols = []
+
+        if table_cols:
+            # Add missing columns as nulls
+            for col in table_cols:
+                if col not in df.columns:
+                    df[col] = pd.NA
+            # Drop extras not present in the table
+            df = df[[c for c in table_cols if c in df.columns]]
 
     dtype_map = None
     if dtype_overrides:
