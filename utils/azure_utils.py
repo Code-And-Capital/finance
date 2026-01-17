@@ -267,8 +267,7 @@ def write_sql_table(
         inspector = inspect(engine)
         try:
             table_cols = [
-                col["name"]
-                for col in inspector.get_columns(table_name, schema=schema)
+                col["name"] for col in inspector.get_columns(table_name, schema=schema)
             ]
         except Exception:
             table_cols = []

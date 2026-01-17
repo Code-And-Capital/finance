@@ -121,10 +121,20 @@ def test_write_sql_table_overwrite(mock_engine):
         assert kwargs["index"] is False
 
 
+from unittest.mock import patch
+
+
 def test_write_sql_table_append(mock_engine):
     df = pd.DataFrame({"a": [1, 2]})
 
-    with patch("pandas.DataFrame.to_sql") as mock_to_sql:
+    with (
+        patch("utils.azure_utils.inspect") as mock_inspect,
+        patch("pandas.DataFrame.to_sql") as mock_to_sql,
+    ):
+
+        mock_inspector = mock_inspect.return_value
+        mock_inspector.get_columns.return_value = [{"name": "a"}]
+
         azure_utils.write_sql_table(
             engine=mock_engine,
             table_name="tbl",

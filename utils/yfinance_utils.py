@@ -200,13 +200,95 @@ def pull_info(tickers, client=None):
     - Client injection enables deterministic unit testing.
     """
 
+    def _coerce_company_info_types(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normalize a company_info DataFrame to match the SQL schema:
+        - Convert epoch/strings to date for known date columns.
+        - Cast large integer-like columns to pandas nullable Int64.
+        - Cast ratio/price columns to float.
+        Call this right before write_sql_table(..., overwrite=False) to avoid
+        data-type binding errors on append.
+        """
+        df = df.copy()
+
+        date_cols = [
+            "DATE",
+            "LASTFISCALYEAREND",
+            "NEXTFISCALYEAREND",
+            "MOSTRECENTQUARTER",
+            "EXDIVIDENDDATE",
+            "LASTDIVIDENDDATE",
+            "DIVIDENDDATE",
+        ]
+
+        bigint_cols = [
+            "MARKETCAP",
+            "ENTERPRISEVALUE",
+            "TOTALCASH",
+            "EBITDA",
+            "TOTALDEBT",
+            "TOTALREVENUE",
+            "GROSSPROFITS",
+            "OPERATINGCASHFLOW",
+            "FLOATSHARES",
+            "SHARESOUTSTANDING",
+            "IMPLIEDSHARESOUTSTANDING",
+            "FIRSTTRADEDATEMILLISECONDS",
+            "DATESHORTINTEREST",
+            "SHARESSHORTPRIORMONTH",
+        ]
+
+        float_cols = [
+            "PAYOUTRATIO",
+            "TRAILINGPE",
+            "FORWARDPE",
+            "PRICETOSALESTRAILING12MONTHS",
+            "TRAILINGANNUALDIVIDENDYIELD",
+            "PROFITMARGINS",
+            "PRICETOBOOK",
+            "NETINCOMETOCOMMON",
+            "TARGETMEANPRICE",
+            "52WEEKCHANGE",
+            "SANDP52WEEKCHANGE",
+            "TRAILINGPEGRATIO",
+            "RETURNONEQUITY",
+            "GMTOFFSETMILLISECONDS",
+            "POSTMARKETTIME",
+            "REGULARMARKETTIME",
+            "PRICEEPSCURRENTYEAR",
+            "FIFTYDAYAVERAGECHANGE",
+            "FIFTYDAYAVERAGECHANGEPERCENT",
+            "TWOHUNDREDDAYAVERAGECHANGE",
+            "TWOHUNDREDDAYAVERAGECHANGEPERCENT",
+            "POSTMARKETCHANGEPERCENT",
+            "POSTMARKETCHANGE",
+            "FIFTYTWOWEEKLOWCHANGE",
+            "FIFTYTWOWEEKLOWCHANGEPERCENT",
+            "FIFTYTWOWEEKHIGHCHANGEPERCENT",
+            "FIFTYTWOWEEKCHANGEPERCENT",
+            "GOVERNANCEEPOCHDATE",
+        ]
+
+        for col in date_cols:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col]).dt.date
+
+        for col in bigint_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
+        for col in float_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
+
     if client is None:
         client = create_client(tickers=tickers)
 
     df = client.get_company_info()
     df["DATE"] = pd.to_datetime(df["DATE"]).dt.date
     df = df.map(lambda x: np.nan if isinstance(x, list) else x)
-
+    df = _coerce_company_info_types(df)
     return df
 
 
