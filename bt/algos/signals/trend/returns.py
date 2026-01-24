@@ -4,7 +4,7 @@ from bt.algos.stats.returns import StatTotalReturn
 import pandas as pd
 
 
-class SelectMomentum(AlgoStack):
+class TotalReturnSignal(AlgoStack):
     """
     Selects the top N tickers based on total return over a specified lookback period.
 
@@ -14,7 +14,7 @@ class SelectMomentum(AlgoStack):
 
     Important:
         A selector such as SelectAll() or SelectThese() should be run before
-        SelectMomentum(), because StatTotalReturn reads from temp['selected'].
+        TotalReturnSignal(), because StatTotalReturn reads from temp['selected'].
 
     Args:
         n (int):

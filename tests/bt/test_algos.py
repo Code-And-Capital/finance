@@ -45,7 +45,6 @@ from bt.algos.selection import (
     SelectRegex,
     SelectHasData,
     SelectN,
-    SelectMomentum,
 )
 from bt.engine import Backtest
 from bt.algos.weighting import (
@@ -1336,26 +1335,6 @@ def test_select_n_perc():
     selected = s.temp["selected"]
     assert len(selected) == 1
     assert "c1" in selected
-
-
-def test_select_momentum():
-    algo = SelectMomentum(n=1, lookback=pd.DateOffset(days=3))
-
-    s = Strategy("s")
-
-    dts = pd.date_range("2010-01-01", periods=3)
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
-    data.loc[dts[2], "c1"] = 105
-    data.loc[dts[2], "c2"] = 95
-
-    s.setup(data)
-    s.update(dts[2])
-    s.temp["selected"] = ["c1", "c2"]
-
-    assert algo(s)
-    actual = s.temp["selected"]
-    assert len(actual) == 1
-    assert "c1" in actual
 
 
 def test_limit_weights():

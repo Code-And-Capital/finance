@@ -10,9 +10,12 @@ statistics that downstream algos rely on.
 from .returns import StatTotalReturn
 from .risk import UpdateRisk
 from .set_stat import SetStat
+from .moving_average import SimpleMovingAverage, ExponentialWeightedMovingAverage
 
 __all__ = [
     "StatTotalReturn",
     "UpdateRisk",
     "SetStat",
+    "SimpleMovingAverage",
+    "ExponentialWeightedMovingAverage",
 ]

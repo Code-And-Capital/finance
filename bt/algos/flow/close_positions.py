@@ -1,5 +1,7 @@
 from bt.core.algo_base import Algo
 from bt.core import SecurityBase
+import pandas as pd
+from typing import Union
 
 
 class ClosePositionsAfterDates(Algo):
@@ -26,7 +28,7 @@ class ClosePositionsAfterDates(Algo):
         target.perm['closed']: Set of securities already closed.
     """
 
-    def __init__(self, close_dates: str) -> None:
+    def __init__(self, close_dates: Union[str, pd.DataFrame]) -> None:
         """
         Initialize ClosePositionsAfterDates.
 
@@ -34,7 +36,19 @@ class ClosePositionsAfterDates(Algo):
             close_dates (str): Name of the DataFrame with closing dates.
         """
         super().__init__()
-        self.close_dates = close_dates
+        if isinstance(close_dates, pd.Series):
+            self.close_dates = close_dates
+            self.close_name = None
+
+        elif isinstance(close_dates, pd.DataFrame):
+            if close_dates.shape[1] != 1:
+                raise ValueError("close_dates DataFrame must have exactly one column")
+            self.close_dates = close_dates.iloc[:, 0]
+            self.close_name = None
+
+        else:
+            self.close_dates = None
+            self.close_name = close_dates
 
     def __call__(self, target) -> bool:
         """
@@ -61,7 +75,16 @@ class ClosePositionsAfterDates(Algo):
         if "closed" not in target.perm:
             target.perm["closed"] = set()
 
-        close_dates_df = target.get_data(self.close_dates)["date"]
+        if self.close_name is None:
+            close_dates_df = self.close_dates
+        else:
+            close_dates_df = target.get_data(self.close_name)
+            if isinstance(close_dates_df, pd.DataFrame):
+                if close_dates_df.shape[1] != 1:
+                    raise ValueError(
+                        "close_dates DataFrame must have exactly one column"
+                    )
+                close_dates_df = close_dates_df.iloc[:, 0]
 
         # Candidate securities for closing
         sec_names = [
@@ -76,7 +99,7 @@ class ClosePositionsAfterDates(Algo):
         is_closed = close_dates_df.loc[sec_names] <= target.now
 
         # Close eligible positions
-        for sec_name in is_closed[is_closed].index:
+        for sec_name in is_closed[is_closed == True].index:
             target.close(sec_name, update=False)
             target.perm["closed"].add(sec_name)
 
