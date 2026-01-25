@@ -124,36 +124,60 @@ class SelectWhere(Algo):
         Execute the selection logic.
 
         Steps:
-            1. Resolve signal (DF or retrieved via name).
-            2. Use the row at target.now.
-            3. Select tickers with True signal.
-            4. Apply price-based filtering.
-            5. Store in temp["selected"].
+            1. Resolve the signal DataFrame (direct or via name).
+            2. Determine the active universe from target.temp["selected"]
+            or fall back to the full universe.
+            3. Select tickers with a True signal at target.now.
+            4. Intersect signal-based selection with active universe.
+            5. Optionally apply price-based filtering.
+            6. Store the final selection in target.temp["selected"].
 
-        Parameters:
-            target: Strategy/backtest object providing universe, now, temp, get_data.
+        Parameters
+        ----------
+        target : object
+            Strategy/backtest object providing universe, now, temp, get_data.
 
-        Returns:
-            True (algo always passes control to next).
+        Returns
+        -------
+        bool
+            True (algo always passes control to the next stage).
         """
+        # Resolve signal DataFrame
         if self.signal_name is None:
             signal_df = self.signal
+
         else:
             signal_df = target.get_data(self.signal_name)
 
+        # If no signal available at current time, do nothing
         if target.now not in signal_df.index:
             return True
 
-        row = signal_df.loc[target.now]
+        # Resolve prior selection universe
+        if "selected" in target.temp:
+            active_universe = list(target.temp["selected"])
+            print("selected", active_universe)
+        else:
+            active_universe = list(target.universe.columns)
+            print("not", target.universe.columns)
+
+        if not active_universe:
+            target.temp["selected"] = []
+            return True
+
+        # Signal-based selection
+        row = signal_df.loc[target.now, active_universe]
         selected = list(row[row == True].index)
 
-        if not self.include_no_data:
-            universe = target.universe.loc[target.now, selected].dropna()
+        # Optional price-based filtering
+        if not self.include_no_data and selected:
+            prices = target.universe.loc[target.now, selected].dropna()
 
             if self.include_negative:
-                selected = list(universe.index)
+                selected = list(prices.index)
             else:
-                selected = list(universe[universe > 0].index)
+                selected = list(prices[prices > 0].index)
 
+        # Store final selection
         target.temp["selected"] = selected
         return True

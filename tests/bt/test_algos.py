@@ -867,6 +867,7 @@ def test_select_where_all():
     selected = s.temp["selected"]
     assert len(selected) == 1
     assert "c2" in selected
+    del s.temp["selected"]
 
     # if specify include_no_data then 2
     algo2 = SelectWhere("where", include_no_data=True)
@@ -884,6 +885,7 @@ def test_select_where_all():
     selected = s.temp["selected"]
     assert len(selected) == 1
     assert "c2" in selected
+    del s.temp["selected"]
 
     algo3 = SelectWhere("where", include_negative=True)
 
@@ -914,10 +916,12 @@ def test_select_where():
     assert len(selected) == 2
     assert "c1" in selected
     assert "c2" in selected
+    del s.temp["selected"]
 
     s.update(dts[1])
     assert algo(s)
     assert s.temp["selected"] == []
+    del s.temp["selected"]
 
     s.update(dts[2])
     assert algo(s)
@@ -944,10 +948,12 @@ def test_select_where_legacy():
     assert len(selected) == 2
     assert "c1" in selected
     assert "c2" in selected
+    del s.temp["selected"]
 
     s.update(dts[1])
     assert algo(s)
     assert s.temp["selected"] == []
+    del s.temp["selected"]
 
     s.update(dts[2])
     assert algo(s)
