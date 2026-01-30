@@ -1,3 +1,3 @@
-UPDATE [dbo].[cashflow_quarterly]
-SET TICKER = 'VSNT'
-WHERE TICKER = 'VSNTV';
+UPDATE [dbo].[holdings]
+SET TICKER = 'VSNT*'
+WHERE TICKER = 'VSNT';

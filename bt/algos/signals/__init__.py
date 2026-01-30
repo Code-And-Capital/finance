@@ -13,10 +13,10 @@ and exposes a standardized interface so strategies can combine,
 compare, or aggregate signals in a consistent way.
 """
 
-from .trend import PriceCrossOverSignal, TotalReturnSignal, DualMACrossoverSignal
+from .trend import PriceCrossOverSignal, MomentumSignal, DualMACrossoverSignal
 
 __all__ = [
     "PriceCrossOverSignal",
-    "TotalReturnSignal",
+    "MomentumSignal",
     "DualMACrossoverSignal",
 ]

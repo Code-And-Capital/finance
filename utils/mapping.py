@@ -23,4 +23,5 @@ ticker_mapping = {
     "CWENA": "CWEN-A",
     "GLIBR": "GLIBK",
     "VSNTV UW": "VSNT",
+    "VSNT*": "VSNT",
 }

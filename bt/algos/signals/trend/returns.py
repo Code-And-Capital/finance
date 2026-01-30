@@ -4,7 +4,7 @@ from bt.algos.stats.returns import StatTotalReturn
 import pandas as pd
 
 
-class TotalReturnSignal(AlgoStack):
+class MomentumSignal(AlgoStack):
     """
     Selects the top N tickers based on total return over a specified lookback period.
 

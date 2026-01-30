@@ -156,10 +156,8 @@ class SelectWhere(Algo):
         # Resolve prior selection universe
         if "selected" in target.temp:
             active_universe = list(target.temp["selected"])
-            print("selected", active_universe)
         else:
             active_universe = list(target.universe.columns)
-            print("not", target.universe.columns)
 
         if not active_universe:
             target.temp["selected"] = []

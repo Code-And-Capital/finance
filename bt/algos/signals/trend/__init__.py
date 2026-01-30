@@ -1,4 +1,4 @@
 from .price_crossover import PriceCrossOverSignal, DualMACrossoverSignal
-from .returns import TotalReturnSignal
+from .returns import MomentumSignal
 
-__all__ = ["PriceCrossOverSignal", "TotalReturnSignal", "DualMACrossoverSignal"]
+__all__ = ["PriceCrossOverSignal", "MomentumSignal", "DualMACrossoverSignal"]
