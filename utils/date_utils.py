@@ -57,3 +57,23 @@ def coerce_timestamp_or_none(value: Any) -> pd.Timestamp | None:
         return coerce_timestamp(value)
     except ValueError:
         return None
+
+
+def month_index(value: Any, label: str = "value") -> int:
+    """
+    Convert a date-like value to its calendar month index.
+
+    Parameters
+    ----------
+    value : Any
+        Date-like input accepted by :func:`pandas.to_datetime`.
+    label : str, optional
+        Field label used in error messages when parsing fails.
+
+    Returns
+    -------
+    int
+        Calendar month index computed as ``year * 12 + month``.
+    """
+    ts = coerce_timestamp(value, label=label)
+    return ts.year * 12 + ts.month

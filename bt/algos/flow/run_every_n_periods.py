@@ -1,6 +1,9 @@
 from typing import Any
 
+import pandas as pd
+
 from bt.core.algo_base import Algo
+from utils.date_utils import coerce_timestamp_or_none, month_index
 from utils.math_utils import validate_integer, validate_non_negative
 
 
@@ -74,7 +77,7 @@ class RunEveryNPeriods(Algo):
         bool
             ``True`` when current period is a trigger boundary, else ``False``.
         """
-        now = getattr(target, "now", None)
+        now = coerce_timestamp_or_none(getattr(target, "now", None))
         if now is None:
             return False
 
@@ -86,3 +89,66 @@ class RunEveryNPeriods(Algo):
         should_run = self._phase == self.offset
         self._phase = (self._phase + 1) % self.n
         return should_run
+
+
+class RunEveryNMonths(Algo):
+    """Trigger execution every ``n`` calendar months.
+
+    Parameters
+    ----------
+    n : int
+        Positive month interval between trigger events.
+
+    Notes
+    -----
+    - The bootstrap row (``target.inow == 0``) never triggers.
+    - Trigger cadence uses month indexing, not day-count spacing.
+    - Multiple calls on the same timestamp are de-duplicated.
+    """
+
+    def __init__(self, n: int) -> None:
+        """Initialize month-interval trigger.
+
+        Raises
+        ------
+        TypeError
+            If ``n`` is not an integer.
+        ValueError
+            If ``n`` is not strictly positive.
+        """
+        super().__init__()
+        n_val = int(
+            validate_non_negative(
+                validate_integer(n, "RunEveryNMonths `n`"), "RunEveryNMonths `n`"
+            )
+        )
+        if n_val == 0:
+            raise ValueError("RunEveryNMonths `n` must be > 0.")
+
+        self.n = n_val
+        self._last_run_month_index: int | None = None
+        self._last_call: pd.Timestamp | None = None
+
+    def __call__(self, target: Any) -> bool:
+        """Evaluate whether the month-based cadence condition is satisfied."""
+        now = coerce_timestamp_or_none(getattr(target, "now", None))
+        if now is None:
+            return False
+
+        if self._last_call == now:
+            return False
+        self._last_call = now
+
+        if getattr(target, "inow", None) == 0:
+            return False
+
+        current_month = month_index(now)
+        if self._last_run_month_index is None:
+            self._last_run_month_index = current_month
+            return True
+
+        if current_month - self._last_run_month_index >= self.n:
+            self._last_run_month_index = current_month
+            return True
+
+        return False

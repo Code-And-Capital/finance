@@ -22,7 +22,9 @@ from bt.algos.flow import (
     RunIfCashOutOfBounds,
     RunAfterDate,
     RunAfterDays,
+    RunAfterMonths,
     RunEveryNPeriods,
+    RunEveryNMonths,
     ClosePositionsAfterDates,
 )
 
@@ -392,6 +394,17 @@ def test_run_after_date():
     assert algo(target)
 
 
+def test_run_after_date_short_circuits_after_activation():
+    algo = RunAfterDate("2010-01-02")
+    target = mock.MagicMock()
+
+    target.now = pd.Timestamp("2010-01-03")
+    assert algo(target)
+
+    target.now = "not-a-date"
+    assert algo(target)
+
+
 def test_run_after_date_rejects_nat():
     with pytest.raises(ValueError, match="valid timestamp"):
         RunAfterDate(pd.NaT)
@@ -415,6 +428,74 @@ def test_run_after_days_validates_input():
 
     with pytest.raises(ValueError, match=">= 0"):
         RunAfterDays(-1)
+
+
+def test_run_after_days_short_circuits_after_activation():
+    algo = RunAfterDays(1)
+    assert not algo(None)
+    assert algo(None)
+    assert algo(None)
+
+
+@pytest.mark.parametrize(
+    "months,dts,expected",
+    [
+        (
+            0,
+            ["2026-01-01", "2026-01-15", "2026-02-15"],
+            [True, True, True],
+        ),
+        (
+            1,
+            ["2026-01-01", "2026-01-15", "2026-02-01", "2026-02-15"],
+            [False, False, True, True],
+        ),
+        (
+            2,
+            ["2025-12-15", "2026-01-10", "2026-02-10"],
+            [False, False, True],
+        ),
+    ],
+)
+def test_run_after_months_sequences(months, dts, expected):
+    algo = RunAfterMonths(months)
+    target = mock.MagicMock()
+    actual = []
+    for dt in pd.to_datetime(dts):
+        target.now = dt
+        actual.append(algo(target))
+    assert actual == expected
+
+
+def test_run_after_months_validates_input():
+    with pytest.raises(TypeError, match="integer"):
+        RunAfterMonths(1.5)
+
+    with pytest.raises(ValueError, match=">= 0"):
+        RunAfterMonths(-1)
+
+
+def test_run_after_months_handles_missing_or_invalid_now():
+    algo = RunAfterMonths(1)
+    target = mock.MagicMock(spec=[])
+    assert not algo(target)
+
+    target = mock.MagicMock()
+    target.now = "not-a-date"
+    assert not algo(target)
+
+
+def test_run_after_months_short_circuits_after_activation():
+    algo = RunAfterMonths(1)
+    target = mock.MagicMock()
+    target.now = pd.Timestamp("2026-01-01")
+    assert not algo(target)
+
+    target.now = pd.Timestamp("2026-02-01")
+    assert algo(target)
+
+    target.now = "not-a-date"
+    assert algo(target)
 
 
 def test_require():
@@ -555,6 +636,13 @@ def test_run_every_n_periods_handles_missing_now():
     assert not algo(target)
 
 
+def test_run_every_n_periods_handles_invalid_now():
+    algo = RunEveryNPeriods(n=3)
+    target = mock.MagicMock()
+    target.now = "not-a-date"
+    assert not algo(target)
+
+
 def test_run_every_n_periods_validates_input():
     with pytest.raises(TypeError, match="`n` must be an integer"):
         RunEveryNPeriods(n=1.5)
@@ -570,6 +658,72 @@ def test_run_every_n_periods_validates_input():
 
     with pytest.raises(ValueError, match="0 <= offset < n"):
         RunEveryNPeriods(n=3, offset=3)
+
+
+def test_run_every_n_months_sequences():
+    algo = RunEveryNMonths(n=2)
+    dts = pd.to_datetime(
+        ["2026-01-01", "2026-01-15", "2026-02-15", "2026-03-15", "2026-04-15"]
+    )
+    target = mock.MagicMock()
+    actual = []
+    for i, dt in enumerate(dts):
+        target.now = dt
+        target.inow = i
+        actual.append(algo(target))
+    assert actual == [False, True, False, True, False]
+
+
+def test_run_every_n_months_deduplicates_same_timestamp():
+    algo = RunEveryNMonths(n=1)
+    target = mock.MagicMock()
+    target.now = pd.Timestamp("2026-01-01")
+    target.inow = 0
+    assert not algo(target)
+
+    target.now = pd.Timestamp("2026-01-15")
+    target.inow = 1
+    assert algo(target)
+    assert not algo(target)
+
+
+def test_run_every_n_months_validates_input():
+    with pytest.raises(TypeError, match="`n` must be an integer"):
+        RunEveryNMonths(n=1.5)
+
+    with pytest.raises(ValueError, match="`n` must be > 0"):
+        RunEveryNMonths(n=0)
+
+
+def test_run_every_n_months_handles_cross_year_month_counting():
+    algo = RunEveryNMonths(n=2)
+    dts = pd.to_datetime(
+        ["2025-12-15", "2026-01-10", "2026-02-10", "2026-03-10", "2026-04-10"]
+    )
+    target = mock.MagicMock()
+    actual = []
+    for i, dt in enumerate(dts):
+        target.now = dt
+        target.inow = i
+        actual.append(algo(target))
+
+    assert actual == [False, True, False, True, False]
+
+
+def test_run_after_months_and_run_every_n_months_composition():
+    after = RunAfterMonths(1)
+    every = RunEveryNMonths(n=2)
+    dts = pd.to_datetime(
+        ["2026-01-01", "2026-01-15", "2026-02-15", "2026-03-15", "2026-04-15"]
+    )
+    target = mock.MagicMock()
+    actual = []
+    for i, dt in enumerate(dts):
+        target.now = dt
+        target.inow = i
+        actual.append(after(target) and every(target))
+
+    assert actual == [False, False, True, False, True]
 
 
 def test_close_positions_after_dates_resolves_data_key_once():
