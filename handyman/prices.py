@@ -1,71 +1,131 @@
+from __future__ import annotations
+
+"""Price query helpers for raw long-format adjusted close time series."""
+
+from typing import Optional, Sequence
+
 import pandas as pd
-import os
-import utils.azure_utils as azure_utils
-from utils.list_utils import normalize_to_list
-from utils.query_utils import render_sql_query
+
+from handyman.base import DateLike, run_sql_template
+from sql.script_factory import default_sql_client
+from utils.dataframe_utils import ensure_datetime_column
+from utils.list_utils import normalize_string_list
 
 
-def get_prices(tickers=None, start_date=None, configs_path=None):
-    """
-    Retrieve adjusted close price history for a set of tickers and return it
-    as a wide time-series DataFrame.
-
-    This function queries the `prices` table in the CODE_CAPITAL database for
-    adjusted close prices (`ADJ_CLOSE`) for the specified tickers on or after
-    the given start date. The result is returned in pivoted (wide) format,
-    indexed by date with one column per ticker.
+def get_prices(
+    tickers: Optional[Sequence[str] | str] = None,
+    start_date: Optional[DateLike] = None,
+    end_date: Optional[DateLike] = None,
+    configs_path: Optional[str] = None,
+) -> pd.DataFrame:
+    """Return adjusted-close prices in long format.
 
     Parameters
     ----------
-    tickers : Sequence[str]
-        Collection of ticker symbols to query. Each ticker must exist in the
-        `prices` table.
-    start_date : str or datetime-like
-        Earliest date (inclusive) for which prices should be retrieved.
-        Passed directly into the SQL query.
+    tickers
+        Optional ticker filter value(s).
+    start_date
+        Optional inclusive lower bound applied to ``DATE``.
+    end_date
+        Optional inclusive upper bound applied to ``DATE``.
+    configs_path
+        Optional path to the configuration file with Azure credentials.
 
     Returns
     -------
     pandas.DataFrame
-        DataFrame indexed by `DATE` (datetime64[ns]) with ticker symbols as
-        columns and adjusted close prices as values.
+        Long dataframe with required columns ``DATE``, ``TICKER``, and
+        ``ADJ_CLOSE``.
 
-    Notes
-    -----
-    - The SQL query is constructed via string interpolation; inputs are assumed
-      to be trusted.
-    - Missing prices for a given date-ticker combination will appear as NaN
-      after pivoting.
+    Raises
+    ------
+    ValueError
+        If required columns ``DATE``, ``TICKER``, and ``ADJ_CLOSE`` are missing.
     """
-    tickers = normalize_to_list(tickers)
+    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
 
-    date_filter = ""
-    if start_date:
-        date_filter = f"AND DATE >= '{start_date}'"
+    raw = run_sql_template(
+        sql_file="prices.txt",
+        filters={
+            "ticker_filter": default_sql_client.add_in_filter(
+                "TICKER", normalized_tickers
+            ),
+            "date_filter": "\n".join(
+                filter_text
+                for filter_text in [
+                    default_sql_client.add_date_filter("DATE", start_date),
+                    default_sql_client.add_end_date_filter("DATE", end_date),
+                ]
+                if filter_text
+            ),
+        },
+        configs_path=configs_path,
+    )
+    raw = ensure_datetime_column(raw, "DATE")
 
-    ticker_filter = ""
-    if tickers:
-        ticker_string = "', '".join(tickers)
-        ticker_filter = f"AND TICKER IN ('{ticker_string}')"
-
-    query_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "..",
-            "sql",
-            "prices.txt",
+    required_cols = {"DATE", "TICKER", "ADJ_CLOSE"}
+    missing_cols = required_cols.difference(raw.columns)
+    if missing_cols:
+        raise ValueError(
+            f"Expected columns {sorted(required_cols)}; missing {sorted(missing_cols)}"
         )
-    )
 
-    query = render_sql_query(
-        query_path=query_path,
-        filters={"ticker_filter": ticker_filter, "date_filter": date_filter},
-    )
+    return raw
 
-    engine = azure_utils.get_azure_engine(configs_path=configs_path)
 
-    df = azure_utils.read_sql_table(engine=engine, query=query)
-    df["DATE"] = pd.to_datetime(df["DATE"])
-    df = df.pivot(index="DATE", columns="TICKER", values="ADJ_CLOSE")
-    df = df.ffill().where(df[::-1].notna().cummax()[::-1])
-    return df
+def get_analyst_price_targets(
+    *,
+    tickers: Optional[Sequence[str] | str] = None,
+    start_date: Optional[DateLike] = None,
+    configs_path: Optional[str] = None,
+    get_latest: bool = False,
+) -> pd.DataFrame:
+    """Return analyst price target rows with optional ticker/date filtering.
+
+    Parameters
+    ----------
+    tickers
+        Optional ticker filter value(s).
+    start_date
+        Optional inclusive lower bound applied to ``DATE``.
+    configs_path
+        Optional path to the configuration file with Azure credentials.
+    get_latest
+        If True, return only rows from the latest snapshot date per ticker and
+        ignore ``start_date``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Analyst price target rows with ``DATE`` coerced to datetime.
+    """
+    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
+    if not get_latest:
+        df = run_sql_template(
+            sql_file="base_with_filters.txt",
+            filters={
+                "schema": "[dbo]",
+                "table_name": "[analyst_price_targets]",
+                "filters_sql": "\n".join(
+                    filter_text
+                    for filter_text in [
+                        default_sql_client.add_in_filter("TICKER", normalized_tickers),
+                        default_sql_client.add_date_filter("DATE", start_date),
+                    ]
+                    if filter_text
+                ),
+            },
+            configs_path=configs_path,
+        )
+    else:
+        df = run_sql_template(
+            sql_file="analyst_price_targets_latest.txt",
+            filters={
+                "ticker_filter": default_sql_client.add_in_filter(
+                    "TICKER", normalized_tickers
+                ),
+                "date_filter": "",
+            },
+            configs_path=configs_path,
+        )
+    return ensure_datetime_column(df, "DATE")

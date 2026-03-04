@@ -46,7 +46,7 @@ from .run_after_days import RunAfterDays
 from .run_every_n_periods import RunEveryNPeriods
 
 # Rebalancing / bounds triggers
-from .run_if_out_of_bounds import RunIfOutOfBounds
+from .run_if_out_of_bounds import RunIfOutOfBounds, RunIfCashOutOfBounds
 
 # Expose all classes in package namespace
 __all__ = [
@@ -66,4 +66,5 @@ __all__ = [
     "RunAfterDays",
     "RunEveryNPeriods",
     "RunIfOutOfBounds",
+    "RunIfCashOutOfBounds",
 ]

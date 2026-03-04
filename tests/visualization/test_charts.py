@@ -1,7 +1,22 @@
 import pytest
 import pandas as pd
 from plotly.graph_objects import Scatter as GoScatter
-from visualization.charts import Chart, Line, Scatter, Area, Candlestick
+from visualization.charts import (
+    Area,
+    Bar,
+    Boxplot,
+    Candlestick,
+    Chart,
+    Contour,
+    Heatmap,
+    Histogram,
+    Indicator,
+    Line,
+    Pie,
+    Scatter,
+    ScatterGeo,
+    Waterfall,
+)
 
 
 # -------------------------------
@@ -19,6 +34,19 @@ def df_small():
             "high": [2, 3, 4],
             "low": [0, 1, 2],
             "close": [1.5, 2.5, 3.5],
+        }
+    )
+
+
+@pytest.fixture
+def df_geo():
+    return pd.DataFrame(
+        {
+            "LAT": [37.77, 40.71],
+            "LON": [-122.42, -74.01],
+            "CITY": ["San Francisco", "New York"],
+            "SIZE": [10, 20],
+            "COLOR": ["red", "blue"],
         }
     )
 
@@ -231,3 +259,131 @@ def test_quick_styling(df_small):
     # it should have added axis updates + hover + legend
     assert line.axis_updates != []
     assert line.layout_updates != []
+
+
+def test_bar_create_adds_layout_update(df_small):
+    bar = Bar(df_small).create(
+        x="a", y=["a", "b"], barmode="stack", bar_corner_radius=4
+    )
+    assert len(bar.traces) == 2
+    updates = bar.get_layout_updates()
+    assert any(u.get("barmode") == "stack" for u in updates)
+    assert any(u.get("barcornerradius") == 4 for u in updates)
+
+
+def test_bar_split_categories_creates_category_traces(df_small):
+    bar = Bar(df_small).create(x="a", y="b", split_categories=True)
+    assert len(bar.traces) == len(df_small)
+    assert all(len(trace.x) == 1 for trace in bar.traces)
+
+
+def test_histogram_multiple_series_sets_overlay_and_opacity(df_small):
+    hist = Histogram(df_small).create(y=["a", "b"], bins=5, cumulative=True)
+    assert len(hist.traces) == 2
+    assert any(u.get("barmode") == "overlay" for u in hist.get_layout_updates())
+    assert any(
+        u.get("update", {}).get("opacity") == 0.75 for u in hist.get_trace_updates()
+    )
+
+
+def test_pie_create_uses_labels_and_values(df_small):
+    pie = Pie(df_small).create(x="a", y="b", hole=0.3)
+    assert len(pie.traces) == 1
+    trace = pie.traces[0]
+    assert len(trace.labels) == len(df_small)
+    assert list(trace.values) == list(df_small["b"])
+    assert trace.hole == 0.3
+
+
+def test_heatmap_create(df_small):
+    heatmap = Heatmap(df_small[["a", "b"]]).create(showscale=False)
+    assert len(heatmap.traces) == 1
+    trace = heatmap.traces[0]
+    assert trace.showscale is False
+    assert trace.z.shape == (3, 2)
+
+
+def test_boxplot_create_with_grouping(df_small):
+    box = Boxplot(df_small).create(y=["a", "b"], x="a", boxpoints="all", jitter=0.2)
+    assert len(box.traces) == 2
+    assert box.traces[0].boxpoints == "all"
+    assert box.traces[0].jitter == 0.2
+
+
+def test_indicator_create_from_column_and_delta(df_small):
+    indicator = Indicator(df_small).create(
+        value="b",
+        mode="number+delta",
+        delta_reference="a",
+        number_format=".2f",
+    )
+    assert len(indicator.traces) == 1
+    trace = indicator.traces[0]
+    assert trace.value == float(df_small["b"].iloc[-1])
+    assert trace.delta.reference == float(df_small["a"].iloc[-1])
+
+
+def test_indicator_delta_mode_requires_reference(df_small):
+    with pytest.raises(ValueError):
+        Indicator(df_small).create(value=1, mode="number+delta")
+
+
+def test_indicator_missing_column_raises(df_small):
+    with pytest.raises(KeyError):
+        Indicator(df_small).create(value="missing")
+
+
+def test_waterfall_create_with_percent_text_and_title(df_small):
+    wf = Waterfall(df_small).create(
+        x=["Start", "Gain", "total"],
+        y=[100, 50, "total"],
+        text="percent",
+        title="Waterfall",
+        y_format=",.0f",
+    )
+    assert len(wf.traces) == 1
+    trace = wf.traces[0]
+    assert list(trace.measure) == ["relative", "relative", "total"]
+    assert any(u.get("title") == "Waterfall" for u in wf.get_layout_updates())
+    assert any("yaxis" in u for u in wf.get_axis_updates())
+
+
+def test_waterfall_text_length_validation(df_small):
+    with pytest.raises(ValueError):
+        Waterfall(df_small).create(x=["A", "B"], y=[1, 2], text=["only-one"])
+
+
+def test_contour_create_from_array(df_small):
+    z = [[1, 2], [3, 4]]
+    contour = Contour(df_small).create(
+        z=z, x=[0, 1], y=[0, 1], showscale=False, name="c"
+    )
+    assert len(contour.traces) == 1
+    trace = contour.traces[0]
+    assert trace.showscale is False
+    assert trace.name == "c"
+
+
+def test_scattergeo_create_and_geo_layout(df_geo):
+    geo = ScatterGeo(df_geo).create(
+        lat="LAT", lon="LON", text="CITY", size="SIZE", color="COLOR"
+    )
+    assert len(geo.traces) == 1
+    trace = geo.traces[0]
+    assert len(trace.lat) == len(df_geo)
+    assert len(trace.lon) == len(df_geo)
+
+    geo.build_geo_layout_update(scope="usa", projection="albers usa")
+    assert any("geo" in u for u in geo.get_layout_updates())
+
+
+def test_scattergeo_invalid_projection_scope_pair_raises(df_geo):
+    geo = ScatterGeo(df_geo)
+    with pytest.raises(ValueError):
+        geo.build_geo_layout_update(scope="world", projection="albers usa")
+
+
+def test_scattergeo_size_column_must_exist(df_geo):
+    geo = ScatterGeo(df_geo)
+    with pytest.raises(KeyError):
+        geo.create(lat="LAT", lon="LON", size="MISSING_SIZE_COL")

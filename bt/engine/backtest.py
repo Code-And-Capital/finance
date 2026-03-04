@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from copy import deepcopy
 from typing import Callable, Dict, Optional, Any
-import pyprind
 from bt.core.security import SecurityBase
 from bt.engine.results import Result
 from ffn.core import PerformanceStats
@@ -208,29 +207,23 @@ class Backtest:
         self.strategy.setup(self.data, **self.additional_data)
         self.strategy.adjust(self.initial_capital)
 
-        # Optional progress bar
-        bar = (
-            pyprind.ProgBar(len(self.dates), title=self.name, stream=1)
-            if self.progress_bar
-            else None
-        )
-
         # Day 0 update (dummy row)
         self.strategy.update(self.dates[0])
 
         # Main loop
-        for dt in self.dates[1:]:
-            if bar:
-                bar.update()
-
+        date_iter = tqdm(
+            self.dates[1:],
+            disable=not self.progress_bar,
+            desc=self.name,
+            leave=False,
+        )
+        for dt in date_iter:
             self.strategy.update(dt)
 
             if not self.strategy.bankrupt:
                 self.strategy.run()
                 self.strategy.update(dt)
             else:
-                if bar:
-                    bar.stop()
                 break
 
         self.stats = PerformanceStats(self.strategy.prices)

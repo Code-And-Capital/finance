@@ -141,6 +141,18 @@ def test_layout_updates_before_build():
     assert fig.fig.layout.title.text == "MyTitle"
 
 
+def test_layout_uses_default_margin_when_none():
+    fig = Figure(rows=1, cols=1)
+    fig.add_chart(MockChart(traces=[]))
+    fig.layout(margin=None)
+    fig.build()
+
+    assert fig.fig.layout.margin.l == 75
+    assert fig.fig.layout.margin.r == 50
+    assert fig.fig.layout.margin.t == 60
+    assert fig.fig.layout.margin.b == 45
+
+
 def test_layout_updates_after_build():
     fig = Figure(rows=1, cols=1)
     fig.add_chart(MockChart(traces=[]))

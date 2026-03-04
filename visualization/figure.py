@@ -1,7 +1,12 @@
-import plotly.graph_objects as go
+"""Figure orchestration for chart composition and subplot rendering."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
 import plotly.express as px
+import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from typing import List, Optional, Dict, Any
 
 
 class Figure:
@@ -317,7 +322,7 @@ class Figure:
         title: Optional[str] = None,
         template: str = "plotly_dark",
         font_size: int = 14,
-        margin: Dict[str, int] = dict(l=75, r=50, t=60, b=45),
+        margin: Optional[Dict[str, int]] = None,
         showlegend: Optional[bool] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
@@ -334,7 +339,9 @@ class Figure:
             "title": title,
             "template": template,
             "font": dict(size=font_size),
-            "margin": margin,
+            "margin": (
+                margin if margin is not None else {"l": 75, "r": 50, "t": 60, "b": 45}
+            ),
             "showlegend": showlegend,
             "height": height,
             "width": width,

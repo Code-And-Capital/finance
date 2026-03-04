@@ -1,47 +1,29 @@
 import abc
-import pandas as pd
-from bt.core.algo_base import Algo
 from typing import Any
+
+import pandas as pd
+
+from bt.core.algo_base import Algo
+from utils.date_utils import coerce_timestamp, coerce_timestamp_or_none
 
 
 class RunPeriod(Algo, metaclass=abc.ABCMeta):
-    """
-    Abstract Algo for triggering logic on specific periodic boundaries.
-
-    This base class allows subclasses to define the meaning of a "period" via
-    the abstract method :meth:`compare_dates`. The algo then determines whether
-    to run based on:
-
-    - Whether it is the *first* date in the dataset
-    - Whether it is the *last* date in the dataset
-    - Whether it is the *end* of a period (subclass defines period behavior)
-    - Whether it is the *start* of a period (subclass defines period behavior)
-
-    Examples
-    --------
-    Trigger on end-of-month:
-        class RunMonthly(RunPeriod):
-            def compare_dates(self, now, next_or_prev):
-                return now.month != next_or_prev.month
-
-    Trigger on end-of-week:
-        class RunWeekly(RunPeriod):
-            def compare_dates(self, now, next_or_prev):
-                return now.week != next_or_prev.week
+    """Base class for period-boundary scheduling algos.
 
     Parameters
     ----------
     run_on_first_date : bool, default True
-        If True, run on the first valid date in the dataset.
+        Whether to trigger on the first real data date (index position 1).
     run_on_end_of_period : bool, default False
-        If True, run when the current date is the last date of the current period.
+        If ``True``, compare current date to the next index date (period-end
+        behavior). If ``False``, compare to the previous date (period-start
+        behavior).
     run_on_last_date : bool, default False
-        If True, run on the final date of the dataset.
+        Whether to trigger on the last index date.
 
     Notes
     -----
-    This class does not define what constitutes a "period." Subclasses must
-    implement :meth:`compare_dates` to define the boundaries (e.g., month, week).
+    Position ``0`` is treated as a synthetic bootstrap row and never triggers.
     """
 
     def __init__(
@@ -56,59 +38,58 @@ class RunPeriod(Algo, metaclass=abc.ABCMeta):
         self.run_on_last_date = run_on_last_date
 
     def __call__(self, target: Any) -> bool:
-        """
-        Determine whether the algo should run on the current date.
+        """Determine whether the algo should trigger on current target state.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            The current backtest target containing:
-            - ``now`` (Timestamp): current simulation date
-            - ``data`` (DataFrame/Series): price universe indexed by date
+        target : Any
+            Target object expected to expose ``now`` and ``data.index``.
 
         Returns
         -------
         bool
-            True if the algo should execute on this date, False otherwise.
+            ``True`` when trigger conditions are met, else ``False``.
         """
-        now = target.now
-
-        # If no date is available, do nothing
+        now = getattr(target, "now", None)
         if now is None:
             return False
 
-        index = target.data.index
-
-        # If the date is not part of the dataset, skip
-        if now not in index:
+        data = getattr(target, "data", None)
+        index = getattr(data, "index", None)
+        if index is None or len(index) == 0:
             return False
 
-        current_loc = index.get_loc(now)
+        now_ts = coerce_timestamp_or_none(now)
+        if now_ts is None:
+            return False
+
+        current_loc = self._loc_for_timestamp(index, now_ts)
+        if current_loc is None:
+            return False
+
         last_loc = len(index) - 1
 
-        # Index 0 is an artificial date added by the backtest constructor
         if current_loc == 0:
             return False
 
-        # First valid trading date
         if current_loc == 1:
             return self.run_on_first_date
 
-        # Final date in dataset
         if current_loc == last_loc:
             return self.run_on_last_date
 
-        # --- Period comparison logic ---
-        # Convert to Timestamp for attribute access (month/week/quarter/etc.)
-        now_ts = pd.Timestamp(now)
-
-        # Determine which neighbor to compare against
-        # +1 = end-of-period, -1 = start-of-period
         offset = 1 if self.run_on_end_of_period else -1
         neighbor_date = index[current_loc + offset]
-        neighbor_ts = pd.Timestamp(neighbor_date)
+        neighbor_ts = coerce_timestamp(neighbor_date, "RunPeriod neighbor date")
 
         return self.compare_dates(now_ts, neighbor_ts)
+
+    def _loc_for_timestamp(self, index: pd.Index, now: pd.Timestamp) -> int | None:
+        """Return first index location for ``now`` or ``None`` if absent."""
+        locs = [loc for loc in index.get_indexer_for([now]) if loc != -1]
+        if not locs:
+            return None
+        return int(locs[0])
 
     def compare_dates(self, now: pd.Timestamp, neighbor: pd.Timestamp) -> bool:
         """
@@ -138,222 +119,38 @@ class RunPeriod(Algo, metaclass=abc.ABCMeta):
 
 
 class RunDaily(RunPeriod):
-    """
-    Algo that triggers whenever the date changes (day boundary crossed).
+    """Trigger when calendar day changes across adjacent index rows."""
 
-    This is typically used for daily-frequency logic, such as daily rebalancing
-    or daily indicator updates. The algo compares the current `target.now`
-    date to either the previous or next date in the dataset (depending on the
-    `run_on_end_of_period` setting inherited from `RunPeriod`).
-
-    Args:
-        run_on_first_date (bool, optional):
-            If True, the algo returns True the first time it is called.
-            Defaults to True.
-
-        run_on_end_of_period (bool, optional):
-            If True, the algo determines the date change by comparing with
-            *next* available date in the dataset.
-            If False, it compares with the *previous* date.
-            Defaults to False.
-
-        run_on_last_date (bool, optional):
-            If True, the algo returns True on the final date in the dataset.
-            Defaults to False.
-
-    Returns:
-        bool:
-            True if the day changes relative to the comparison date,
-            otherwise False.
-    """
-
-    def compare_dates(self, now, date_to_compare):
-        # Trigger if the day has changed.
+    def compare_dates(self, now: pd.Timestamp, date_to_compare: pd.Timestamp) -> bool:
         return now.date() != date_to_compare.date()
 
 
 class RunWeekly(RunPeriod):
-    """
-    Algo that triggers whenever the ISO week number changes.
+    """Trigger when ISO week boundary changes across adjacent rows."""
 
-    This is typically used for weekly-frequency logic such as weekly rebalancing.
-    The algo compares the current `target.now` week number with that of either
-    the previous or next date in the dataset (depending on the
-    `run_on_end_of_period` setting inherited from :class:`RunPeriod`).
-
-    Args:
-        run_on_first_date (bool, optional):
-            If True, the algo returns True on the first date in the dataset.
-            Defaults to True.
-
-        run_on_end_of_period (bool, optional):
-            If True, the algo compares the current date with the *next* date
-            in the dataset; otherwise, it compares with the *previous* date.
-            Defaults to False.
-
-        run_on_last_date (bool, optional):
-            If True, the algo returns True on the final date in the dataset.
-            Defaults to False.
-
-    Returns:
-        bool:
-            True if the ISO week changes relative to the comparison date,
-            otherwise False.
-    """
-
-    def compare_dates(self, now, date_to_compare):
+    def compare_dates(self, now: pd.Timestamp, date_to_compare: pd.Timestamp) -> bool:
         now_iso = now.isocalendar()
         cmp_iso = date_to_compare.isocalendar()
 
-        # Trigger when year or week number change
-        return (now_iso.year != cmp_iso.year) or (now_iso.week != cmp_iso.week)
+        return now_iso.week != cmp_iso.week
 
 
 class RunMonthly(RunPeriod):
-    """
-    Algo that triggers whenever the month changes.
+    """Trigger when month boundary changes across adjacent rows."""
 
-    This is typically used for monthly-frequency logic, such as monthly
-    rebalancing or reporting. The algo compares the current `target.now` month
-    with that of either the previous or next date in the dataset, depending
-    on the `run_on_end_of_period` setting inherited from :class:`RunPeriod`.
-
-    Args:
-        run_on_first_date (bool, optional):
-            If True, the algo returns True on the first date in the dataset.
-            Defaults to True.
-
-        run_on_end_of_period (bool, optional):
-            If True, the algo compares the current date with the *next* date
-            in the dataset; otherwise, it compares with the *previous* date.
-            Defaults to False.
-
-        run_on_last_date (bool, optional):
-            If True, the algo returns True on the final date in the dataset.
-            Defaults to False.
-
-    Returns:
-        bool:
-            True if the month changes relative to the comparison date,
-            otherwise False.
-    """
-
-    def compare_dates(self, now, date_to_compare):
-        """
-        Compare the current date to another date to detect a month change.
-
-        Parameters
-        ----------
-        now : pandas.Timestamp
-            The current date in the backtest.
-        date_to_compare : pandas.Timestamp
-            The date to compare against (previous or next date in dataset).
-
-        Returns
-        -------
-        bool
-            True if the month or year has changed, False otherwise.
-        """
-        return (now.year != date_to_compare.year) or (
-            now.month != date_to_compare.month
-        )
+    def compare_dates(self, now: pd.Timestamp, date_to_compare: pd.Timestamp) -> bool:
+        return now.month != date_to_compare.month
 
 
 class RunQuarterly(RunPeriod):
-    """
-    Algo that triggers whenever the quarter changes.
+    """Trigger when quarter boundary changes across adjacent rows."""
 
-    This is typically used for quarterly-frequency logic, such as
-    quarterly rebalancing, reporting, or strategy evaluation. The algo
-    compares the current `target.now` quarter with that of either the previous
-    or next date in the dataset, depending on the `run_on_end_of_period`
-    setting inherited from :class:`RunPeriod`.
-
-    Args:
-        run_on_first_date (bool, optional):
-            If True, the algo returns True on the first date in the dataset.
-            Defaults to True.
-
-        run_on_end_of_period (bool, optional):
-            If True, the algo compares the current date with the *next* date
-            in the dataset; otherwise, it compares with the *previous* date.
-            Defaults to False.
-
-        run_on_last_date (bool, optional):
-            If True, the algo returns True on the final date in the dataset.
-            Defaults to False.
-
-    Returns:
-        bool:
-            True if the quarter changes relative to the comparison date,
-            otherwise False.
-    """
-
-    def compare_dates(self, now, date_to_compare):
-        """
-        Compare the current date to another date to detect a quarter change.
-
-        Parameters
-        ----------
-        now : pandas.Timestamp
-            The current date in the backtest.
-        date_to_compare : pandas.Timestamp
-            The date to compare against (previous or next date in dataset).
-
-        Returns
-        -------
-        bool
-            True if the quarter or year has changed, False otherwise.
-        """
-        return (now.year != date_to_compare.year) or (
-            now.quarter != date_to_compare.quarter
-        )
+    def compare_dates(self, now: pd.Timestamp, date_to_compare: pd.Timestamp) -> bool:
+        return now.quarter != date_to_compare.quarter
 
 
 class RunYearly(RunPeriod):
-    """
-    Algo that triggers whenever the year changes.
+    """Trigger when year boundary changes across adjacent rows."""
 
-    This is typically used for yearly-frequency logic, such as annual
-    rebalancing, reporting, or strategy evaluation. The algo compares the
-    current `target.now` year with that of either the previous or next date
-    in the dataset, depending on the `run_on_end_of_period` setting inherited
-    from :class:`RunPeriod`.
-
-    Args:
-        run_on_first_date (bool, optional):
-            If True, the algo returns True on the first date in the dataset.
-            Defaults to True.
-
-        run_on_end_of_period (bool, optional):
-            If True, the algo compares the current date with the *next* date
-            in the dataset; otherwise, it compares with the *previous* date.
-            Defaults to False.
-
-        run_on_last_date (bool, optional):
-            If True, the algo returns True on the final date in the dataset.
-            Defaults to False.
-
-    Returns:
-        bool:
-            True if the year changes relative to the comparison date,
-            otherwise False.
-    """
-
-    def compare_dates(self, now, date_to_compare):
-        """
-        Compare the current date to another date to detect a year change.
-
-        Parameters
-        ----------
-        now : pandas.Timestamp
-            The current date in the backtest.
-        date_to_compare : pandas.Timestamp
-            The date to compare against (previous or next date in dataset).
-
-        Returns
-        -------
-        bool
-            True if the year has changed, False otherwise.
-        """
+    def compare_dates(self, now: pd.Timestamp, date_to_compare: pd.Timestamp) -> bool:
         return now.year != date_to_compare.year

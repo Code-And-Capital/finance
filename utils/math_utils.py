@@ -1,3 +1,6 @@
+from numbers import Integral
+
+
 def is_zero(x, tol: float = 1e-12) -> bool:
     """
     Return True if ``x`` is effectively zero within a numerical tolerance.
@@ -21,3 +24,56 @@ def is_zero(x, tol: float = 1e-12) -> bool:
         True if ``abs(x) < tol`` else False.
     """
     return abs(x) < tol
+
+
+def validate_non_negative(value: float, label: str) -> float:
+    """
+    Return ``value`` as float after enforcing a non-negative constraint.
+
+    Parameters
+    ----------
+    value : float
+        Numeric value to validate.
+    label : str
+        Field name used in the exception message.
+
+    Returns
+    -------
+    float
+        The validated value converted to ``float``.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` is negative.
+    """
+    val = float(value)
+    if val < 0:
+        raise ValueError(f"{label} must be >= 0.")
+    return val
+
+
+def validate_integer(value, label: str) -> int:
+    """
+    Return ``value`` as ``int`` after enforcing integer type semantics.
+
+    Parameters
+    ----------
+    value : Any
+        Value to validate as an integer.
+    label : str
+        Field name used in the exception message.
+
+    Returns
+    -------
+    int
+        The validated integer value.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is not an integer-like numeric type.
+    """
+    if not isinstance(value, Integral):
+        raise TypeError(f"{label} must be an integer.")
+    return int(value)

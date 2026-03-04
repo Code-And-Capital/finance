@@ -1,65 +1,103 @@
+from __future__ import annotations
+
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
+
 import utils.logging as logging
 
 
+class TaskExecutionError(RuntimeError):
+    """Represents a task failure with partial ordered results."""
+
+    def __init__(
+        self,
+        *,
+        index: int,
+        original_exception: Exception,
+        partial_results: list[Any],
+    ) -> None:
+        super().__init__(f"Task {index} failed: {original_exception}")
+        self.index = index
+        self.original_exception = original_exception
+        self.partial_results = partial_results
+
+
 class ThreadWorkerPool:
-    """
-    Generic thread-based execution pool for parallelizing tasks.
+    """Small wrapper around ThreadPoolExecutor with ordered outputs."""
 
-    This class provides a simple interface to execute a list of callables
-    concurrently using `ThreadPoolExecutor`. It is particularly useful for
-    parallelizing per-ticker operations such as retrieving company info,
-    historical prices, corporate actions, or financial statements from Yahoo Finance.
-
-    Attributes
-    ----------
-    max_workers : int
-        Maximum number of threads to use for parallel execution.
-    """
-
-    def __init__(self, max_workers=8) -> None:
-        """
-        Initialize the ThreadWorkerPool.
-
-        Parameters
-        ----------
-        max_workers : int, default 8
-            Maximum number of threads to use.
-        logger : optional
-            Custom logger to use for error reporting (currently unused).
-        """
+    def __init__(self, max_workers: int = 8) -> None:
+        if max_workers < 1:
+            raise ValueError("max_workers must be >= 1")
         self.max_workers = max_workers
 
-    def run(self, tasks):
-        """
-        Execute a list of callables concurrently and return results in order.
+    def run(
+        self,
+        tasks: list[Callable[[], Any]],
+        return_exceptions: bool = False,
+        stop_on_exception: bool = False,
+    ) -> list[Any]:
+        """Execute callables concurrently and return results in input order.
 
         Parameters
         ----------
-        tasks : list of callable
-            A list of functions (without arguments) to execute in parallel.
-
-        Returns
-        -------
-        list
-            A list of results from each task. If a task raises an exception,
-            its corresponding result will be `None`.
-
-        Notes
-        -----
-        - Results are returned in the same order as the input `tasks` list.
-        - Exceptions from tasks are logged using the `log` function.
+        tasks
+            List of zero-argument callables to execute.
+        return_exceptions
+            If True, task exceptions are returned in the corresponding result
+            positions. If False, failed tasks return ``None``.
+        stop_on_exception
+            If True, abort execution on the first task exception by cancelling
+            all pending futures and re-raising that exception.
         """
-        results = [None] * len(tasks)
+        if not tasks:
+            return []
+
+        results: list[Any] = [None] * len(tasks)
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(tasks[i]): i for i in range(len(tasks))}
+            futures = {
+                executor.submit(tasks[index]): index for index in range(len(tasks))
+            }
             for future in as_completed(futures):
-                idx = futures[future]
+                index = futures[future]
                 try:
-                    results[idx] = future.result()
-                except Exception as e:
-                    logging.log(f"Task {idx} failed: {e}", type="error")
-                    results[idx] = None
+                    results[index] = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    if self._is_rate_limit_error(exc):
+                        log_type = "info"
+                    elif self._is_expected_data_absence_error(exc):
+                        log_type = "warning"
+                    else:
+                        log_type = "error"
+                    logging.log(f"Task {index} failed: {exc}", type=log_type)
+                    if stop_on_exception:
+                        for pending in futures:
+                            if pending is not future:
+                                pending.cancel()
+                        raise TaskExecutionError(
+                            index=index,
+                            original_exception=exc,
+                            partial_results=results.copy(),
+                        ) from exc
+                    results[index] = exc if return_exceptions else None
 
         return results
+
+    @staticmethod
+    def _is_rate_limit_error(exc: Exception) -> bool:
+        """Return True when an exception message indicates a retriable Yahoo rate limit."""
+        message = str(exc).lower()
+        return (
+            "too many requests" in message
+            or "rate limited" in message
+            or "earnings date" in message
+        )
+
+    @staticmethod
+    def _is_expected_data_absence_error(exc: Exception) -> bool:
+        """Return True for known non-critical Yahoo missing-data responses."""
+        message = str(exc).lower()
+        return "no fundamentals data found for symbol" in message or (
+            "http error 404" in message and "quotesummary" in message
+        )

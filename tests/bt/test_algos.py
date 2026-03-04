@@ -20,7 +20,7 @@ from bt.core import (
     CouponPayingHedgeSecurity,
     FixedIncomeSecurity,
 )
-from bt.algos.debugging import PrintTempData, PrintInfo
+from bt.algos.debugging import Debug, PrintDate, PrintTempData, PrintInfo
 from bt.algos.flow import (
     RunOnce,
     RunPeriod,
@@ -31,6 +31,7 @@ from bt.algos.flow import (
     RunYearly,
     RunOnDate,
     RunIfOutOfBounds,
+    RunIfCashOutOfBounds,
     RunAfterDate,
     RunAfterDays,
     RunEveryNPeriods,
@@ -62,7 +63,7 @@ from bt.algos.weighting import (
 )
 from bt.algos.stats import SetStat, StatTotalReturn, UpdateRisk
 from bt.algos.flow import Require, Not, Or
-from bt.algos.capital import Margin
+from bt.algos.capital import CapitalFlow, Margin
 
 
 def test_algo_name():
@@ -98,360 +99,6 @@ def test_algo_stack():
     assert algo1.called
     assert algo2.called
     assert not algo3.called
-
-
-def test_print_temp_data():
-    target = mock.MagicMock()
-    target.temp = {}
-    target.temp["selected"] = ["c1", "c2"]
-    target.temp["weights"] = [0.5, 0.5]
-
-    algo = PrintTempData()
-    assert algo(target)
-
-    algo = PrintTempData("Selected: {selected}")
-    assert algo(target)
-
-
-def test_print_info():
-    target = Strategy("s", [])
-    target.temp = {}
-
-    algo = PrintInfo()
-    assert algo(target)
-
-    algo = PrintInfo("{now}: {name}")
-    assert algo(target)
-
-
-def test_run_once():
-    algo = RunOnce()
-    assert algo(None)
-    assert not algo(None)
-    assert not algo(None)
-
-
-def test_run_period():
-    target = mock.MagicMock()
-
-    dts = pd.date_range("2010-01-01", periods=35)
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-
-    algo = RunPeriod()
-
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-    dts = target.data.index
-
-    target.now = None
-    assert not algo(target)
-
-    # run on first date
-    target.now = dts[0]
-    assert not algo(target)
-
-    # run on first supplied date
-    target.now = dts[1]
-    assert algo(target)
-
-    # run on last date
-    target.now = dts[len(dts) - 1]
-    assert not algo(target)
-
-    algo = RunPeriod(
-        run_on_first_date=False, run_on_end_of_period=True, run_on_last_date=True
-    )
-
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-    dts = target.data.index
-
-    # run on first date
-    target.now = dts[0]
-    assert not algo(target)
-
-    # first supplied date
-    target.now = dts[1]
-    assert not algo(target)
-
-    # run on last date
-    target.now = dts[len(dts) - 1]
-    assert algo(target)
-
-    # date not in index
-    target.now = datetime(2009, 2, 15)
-    assert not algo(target)
-
-
-def test_run_daily():
-    target = mock.MagicMock()
-
-    dts = pd.date_range("2010-01-01", periods=35)
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-
-    algo = RunDaily()
-
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    target.now = dts[1]
-    assert algo(target)
-
-
-def test_run_weekly():
-    dts = pd.date_range("2010-01-01", periods=367)
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-
-    target = mock.MagicMock()
-    target.data = data
-
-    algo = RunWeekly()
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # end of week
-    target.now = dts[2]
-    assert not algo(target)
-
-    # new week
-    target.now = dts[3]
-    assert algo(target)
-
-    algo = RunWeekly(
-        run_on_first_date=False, run_on_end_of_period=True, run_on_last_date=True
-    )
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # end of week
-    target.now = dts[2]
-    assert algo(target)
-
-    # new week
-    target.now = dts[3]
-    assert not algo(target)
-
-    dts = pd.DatetimeIndex(
-        [datetime(2016, 1, 3), datetime(2017, 1, 8), datetime(2018, 1, 7)]
-    )
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # check next year
-    target.now = dts[1]
-    assert algo(target)
-
-
-def test_run_monthly():
-    dts = pd.date_range("2010-01-01", periods=367)
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-
-    target = mock.MagicMock()
-    target.data = data
-
-    algo = RunMonthly()
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # end of month
-    target.now = dts[30]
-    assert not algo(target)
-
-    # new month
-    target.now = dts[31]
-    assert algo(target)
-
-    algo = RunMonthly(
-        run_on_first_date=False, run_on_end_of_period=True, run_on_last_date=True
-    )
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # end of month
-    target.now = dts[30]
-    assert algo(target)
-
-    # new month
-    target.now = dts[31]
-    assert not algo(target)
-
-    dts = pd.DatetimeIndex(
-        [datetime(2016, 1, 3), datetime(2017, 1, 8), datetime(2018, 1, 7)]
-    )
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # check next year
-    target.now = dts[1]
-    assert algo(target)
-
-
-def test_run_quarterly():
-    dts = pd.date_range("2010-01-01", periods=367)
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-
-    target = mock.MagicMock()
-    target.data = data
-
-    algo = RunQuarterly()
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # end of quarter
-    target.now = dts[89]
-    assert not algo(target)
-
-    # new quarter
-    target.now = dts[90]
-    assert algo(target)
-
-    algo = RunQuarterly(
-        run_on_first_date=False, run_on_end_of_period=True, run_on_last_date=True
-    )
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # end of quarter
-    target.now = dts[89]
-    assert algo(target)
-
-    # new quarter
-    target.now = dts[90]
-    assert not algo(target)
-
-    dts = pd.DatetimeIndex(
-        [datetime(2016, 1, 3), datetime(2017, 1, 8), datetime(2018, 1, 7)]
-    )
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # check next year
-    target.now = dts[1]
-    assert algo(target)
-
-
-def test_run_yearly():
-    dts = pd.date_range("2010-01-01", periods=367)
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-
-    target = mock.MagicMock()
-    target.data = data
-
-    algo = RunYearly()
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # end of year
-    target.now = dts[364]
-    assert not algo(target)
-
-    # new year
-    target.now = dts[365]
-    assert algo(target)
-
-    algo = RunYearly(
-        run_on_first_date=False, run_on_end_of_period=True, run_on_last_date=True
-    )
-    # adds the initial day
-    backtest = Backtest(Strategy("", [algo]), data)
-    target.data = backtest.data
-
-    # end of year
-    target.now = dts[364]
-    assert algo(target)
-
-    # new year
-    target.now = dts[365]
-    assert not algo(target)
-
-
-def test_run_on_date():
-    target = mock.MagicMock()
-    target.now = pd.to_datetime("2010-01-01")
-
-    algo = RunOnDate(["2010-01-01", "2010-01-02"])
-    assert algo(target)
-
-    target.now = pd.to_datetime("2010-01-02")
-    assert algo(target)
-
-    target.now = pd.to_datetime("2010-01-03")
-    assert not algo(target)
-
-
-def test_run_if_out_of_bounds():
-    algo = RunIfOutOfBounds(0.5)
-    dts = pd.date_range("2010-01-01", periods=3)
-
-    s = Strategy("s")
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100)
-    s.setup(data)
-
-    s.temp["selected"] = ["c1", "c2"]
-    s.temp["weights"] = {"c1": 0.5, "c2": 0.5}
-    s.update(dts[0])
-    s.children["c1"] = SecurityBase("c1")
-    s.children["c2"] = SecurityBase("c2")
-
-    s.children["c1"]._weight = 0.5
-    s.children["c2"]._weight = 0.5
-    assert not algo(s)
-
-    s.children["c1"]._weight = 0.25
-    s.children["c2"]._weight = 0.75
-    assert not algo(s)
-
-    s.children["c1"]._weight = 0.24
-    s.children["c2"]._weight = 0.76
-    assert algo(s)
-
-    s.children["c1"]._weight = 0.75
-    s.children["c2"]._weight = 0.25
-    assert not algo(s)
-    s.children["c1"]._weight = 0.76
-    s.children["c2"]._weight = 0.24
-    assert algo(s)
-
-
-def test_run_after_date():
-    target = mock.MagicMock()
-    target.now = pd.to_datetime("2010-01-01")
-
-    algo = RunAfterDate("2010-01-02")
-    assert not algo(target)
-
-    target.now = pd.to_datetime("2010-01-02")
-    assert not algo(target)
-
-    target.now = pd.to_datetime("2010-01-03")
-    assert algo(target)
-
-
-def test_run_after_days():
-    target = mock.MagicMock()
-    target.now = pd.to_datetime("2010-01-01")
-
-    algo = RunAfterDays(3)
-    assert not algo(target)
-    assert not algo(target)
-    assert not algo(target)
-    assert algo(target)
 
 
 def test_rebalance():
@@ -1487,112 +1134,6 @@ def test_rebalance_over_time():
     assert rb.call_count == 2
 
 
-def test_require():
-    target = mock.MagicMock()
-    target.temp = {}
-
-    algo = Require(lambda x: len(x) > 0, "selected")
-    assert not algo(target)
-
-    target.temp["selected"] = []
-    assert not algo(target)
-
-    target.temp["selected"] = ["a", "b"]
-    assert algo(target)
-
-
-def test_run_every_n_periods():
-    target = mock.MagicMock()
-    target.temp = {}
-
-    algo = RunEveryNPeriods(n=3, offset=0)
-
-    target.now = pd.to_datetime("2010-01-01")
-    assert algo(target)
-    # run again w/ no date change should not trigger
-    assert not algo(target)
-
-    target.now = pd.to_datetime("2010-01-02")
-    assert not algo(target)
-
-    target.now = pd.to_datetime("2010-01-03")
-    assert not algo(target)
-
-    target.now = pd.to_datetime("2010-01-04")
-    assert algo(target)
-
-    target.now = pd.to_datetime("2010-01-05")
-    assert not algo(target)
-
-
-def test_run_every_n_periods_offset():
-    target = mock.MagicMock()
-    target.temp = {}
-
-    algo = RunEveryNPeriods(n=3, offset=1)
-
-    target.now = pd.to_datetime("2010-01-01")
-    assert not algo(target)
-    # run again w/ no date change should not trigger
-    assert not algo(target)
-
-    target.now = pd.to_datetime("2010-01-02")
-    assert algo(target)
-
-    target.now = pd.to_datetime("2010-01-03")
-    assert not algo(target)
-
-    target.now = pd.to_datetime("2010-01-04")
-    assert not algo(target)
-
-    target.now = pd.to_datetime("2010-01-05")
-    assert algo(target)
-
-
-def test_not():
-    target = mock.MagicMock()
-    target.temp = {}
-
-    # run except on the 1/2/18
-    runOnDateAlgo = RunOnDate([pd.to_datetime("2018-01-02")])
-    notAlgo = Not(runOnDateAlgo)
-
-    target.now = pd.to_datetime("2018-01-01")
-    assert notAlgo(target)
-
-    target.now = pd.to_datetime("2018-01-02")
-    assert not notAlgo(target)
-
-
-def test_or():
-    target = mock.MagicMock()
-    target.temp = {}
-
-    # run on the 1/2/18
-    runOnDateAlgo = RunOnDate([pd.to_datetime("2018-01-02")])
-    runOnDateAlgo2 = RunOnDate([pd.to_datetime("2018-01-03")])
-    runOnDateAlgo3 = RunOnDate([pd.to_datetime("2018-01-04")])
-    runOnDateAlgo4 = RunOnDate([pd.to_datetime("2018-01-04")])
-
-    orAlgo = Or([runOnDateAlgo, runOnDateAlgo2, runOnDateAlgo3, runOnDateAlgo4])
-
-    # verify it returns false when neither is true
-    target.now = pd.to_datetime("2018-01-01")
-    assert not orAlgo(target)
-
-    # verify it returns true when the first is true
-    target.now = pd.to_datetime("2018-01-02")
-    assert orAlgo(target)
-
-    # verify it returns true when the second is true
-    target.now = pd.to_datetime("2018-01-03")
-    assert orAlgo(target)
-
-    # verify it returns true when both algos return true
-    target.now = pd.to_datetime("2018-01-04")
-    assert orAlgo(target)
-
-
 def test_TargetVol():
 
     s = Strategy("s")
@@ -1690,6 +1231,38 @@ def test_close_positions_after_date():
     assert c2.position == 0
     assert c3.position == 100
     assert s.perm["closed"] == set(["c1", "c2"])
+
+
+def test_close_positions_after_date_accepts_series_source():
+    c1 = Security("c1")
+    s = Strategy("s", children=[c1])
+    dts = pd.date_range("2010-01-01", periods=3)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100)
+    c1 = s["c1"]
+
+    cutoffs = pd.Series([dts[1]], index=["c1"], name="date")
+    algo = ClosePositionsAfterDates(cutoffs)
+
+    s.setup(data)
+    s.update(dts[0])
+    s.transact(100, "c1")
+    s.update(dts[2])
+    assert algo(s)
+    assert c1.position == 0
+
+
+def test_close_positions_after_date_skips_root_update_when_nothing_closed():
+    close_dates = pd.Series([pd.Timestamp("2099-01-01")], index=["c1"], name="date")
+    algo = ClosePositionsAfterDates(close_dates)
+
+    target = mock.MagicMock()
+    target.perm = {}
+    target.now = pd.Timestamp("2024-01-01")
+    target.children = {"c1": SecurityBase("c1")}
+    target.root = mock.MagicMock()
+
+    assert algo(target)
+    target.root.update.assert_not_called()
 
 
 def test_update_risk():
@@ -1976,33 +1549,3 @@ def test_hedge_risk_pseudo_over():
     assert c1.position == 100
     assert c2.position == -5
     assert c3.position == -5
-
-
-def test_margin():
-    algo = Margin(0.1, 0.66666666667)
-
-    s = Strategy("s", algos=[WeighSpecified(c1=2), Rebalance()])
-
-    dts = pd.date_range("2010-01-01", periods=3)
-    data = pd.DataFrame(index=dts, columns=["c1"], data=1)
-
-    yesterday = dts[0] - timedelta(days=1)
-    algo._last_date = yesterday
-
-    s.setup(data)
-    s.update(dts[0])
-    s.adjust(1000)
-    s.run()
-
-    algo(s)
-
-    # checked that we charged some margin interest
-    fees = np.sum(s.fees)
-    assert pytest.approx(0.26, 0.01) == fees
-
-    # check that we've liquidated things to get us back to the maintenance requirement
-    assert pytest.approx(1499, 0.001) == sum(
-        child.value for child in s.children.values()
-    )
-
-    assert pytest.approx(999.73, 0.001) == s.value

@@ -6,7 +6,9 @@ from utils.dataframe_utils import (
     convert_columns_to_numeric,
     df_to_dict,
     normalize_columns,
-    add_missing_tickers,
+    ensure_datetime_column,
+    one_column_frame_to_series,
+    normalize_date_series,
 )
 
 
@@ -220,67 +222,56 @@ def test_leading_trailing_spaces():
     assert result.columns.tolist() == ["__COL__ONE__", "_COL_TWO"]
 
 
-def test_add_missing_tickers_adds_missing_rows():
+def test_ensure_datetime_column_success():
+    df = pd.DataFrame({"DATE": ["2024-01-01", "2024-01-02"], "X": [1, 2]})
+    out = ensure_datetime_column(df, "DATE")
+    assert pd.api.types.is_datetime64_any_dtype(out["DATE"])
+    assert out["X"].tolist() == [1, 2]
+
+
+def test_ensure_datetime_column_missing_raises():
+    df = pd.DataFrame({"X": [1]})
+    with pytest.raises(ValueError, match="Expected column 'DATE'"):
+        ensure_datetime_column(df, "DATE")
+
+
+def test_ensure_datetime_column_tz_aware_values_supported():
     df = pd.DataFrame(
         {
-            "TICKER": ["AAPL", "MSFT"],
-            "START_DATE": ["2010-01-01", "2011-01-01"],
+            "DATE": [
+                "2024-01-01T09:30:00-05:00",
+                "2024-01-02T09:30:00+00:00",
+                "2024-01-03T09:30:00-08:00",
+            ]
         }
     )
-
-    result = add_missing_tickers(df, ["AAPL", "MSFT", "GOOG"])
-
-    assert set(result["TICKER"]) == {"AAPL", "MSFT", "GOOG"}
-    assert result.loc[result["TICKER"] == "GOOG", "START_DATE"].iloc[0] == "2000-01-01"
+    out = ensure_datetime_column(df, "DATE")
+    assert pd.api.types.is_datetime64_any_dtype(out["DATE"])
 
 
-def test_add_missing_tickers_no_change_when_all_present():
-    df = pd.DataFrame(
-        {
-            "TICKER": ["AAPL", "MSFT"],
-            "START_DATE": ["2010-01-01", "2011-01-01"],
-        }
-    )
-
-    result = add_missing_tickers(df, ["AAPL", "MSFT"])
-
-    assert result.equals(df)
+def test_one_column_frame_to_series_success():
+    df = pd.DataFrame({"date": ["2024-01-01", "2024-01-02"]}, index=["a", "b"])
+    out = one_column_frame_to_series(df)
+    assert isinstance(out, pd.Series)
+    assert out.index.tolist() == ["a", "b"]
+    assert out.tolist() == ["2024-01-01", "2024-01-02"]
 
 
-def test_add_missing_tickers_empty_ticker_list():
-    df = pd.DataFrame(
-        {
-            "TICKER": ["AAPL"],
-            "START_DATE": ["2010-01-01"],
-        }
-    )
-
-    result = add_missing_tickers(df, [])
-
-    assert result.equals(df)
+def test_one_column_frame_to_series_raises_for_multiple_columns():
+    df = pd.DataFrame({"a": [1], "b": [2]})
+    with pytest.raises(ValueError, match="exactly one column"):
+        one_column_frame_to_series(df)
 
 
-def test_add_missing_tickers_preserves_existing_rows():
-    df = pd.DataFrame(
-        {
-            "TICKER": ["AAPL"],
-            "START_DATE": ["2010-01-01"],
-            "WEIGHT": [0.05],
-        }
-    )
-
-    result = add_missing_tickers(df, ["AAPL", "MSFT"])
-
-    assert "WEIGHT" in result.columns
-    assert result.loc[result["TICKER"] == "AAPL", "WEIGHT"].iloc[0] == 0.05
+def test_normalize_date_series_success():
+    s = pd.Series(["2024-01-01", pd.Timestamp("2024-01-02")], index=["x", "y"])
+    out = normalize_date_series(s, label="close date")
+    assert out.index.tolist() == ["x", "y"]
+    assert out.iloc[0] == pd.Timestamp("2024-01-01")
+    assert out.iloc[1] == pd.Timestamp("2024-01-02")
 
 
-def test_add_missing_tickers_missing_ticker_column_raises():
-    df = pd.DataFrame(
-        {
-            "START_DATE": ["2010-01-01"],
-        }
-    )
-
-    with pytest.raises(KeyError):
-        add_missing_tickers(df, ["AAPL"])
+def test_normalize_date_series_raises_for_invalid_value():
+    s = pd.Series(["not-a-date"])
+    with pytest.raises(ValueError, match="valid timestamp"):
+        normalize_date_series(s, label="close date")

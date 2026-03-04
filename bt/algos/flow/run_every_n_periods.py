@@ -1,72 +1,88 @@
 from typing import Any
+
 from bt.core.algo_base import Algo
+from utils.math_utils import validate_integer, validate_non_negative
 
 
 class RunEveryNPeriods(Algo):
-    """
-    Algo that triggers every `n` periods.
+    """Trigger execution every ``n`` unique periods.
 
-    Useful for strategies that need to execute periodically, e.g.,
-    rebalancing every month, or performing actions every n trading periods.
+    Parameters
+    ----------
+    n : int
+        Positive period interval between triggers.
+    offset : int, optional
+        Initial phase offset in ``[0, n - 1]``.
 
-    Args:
-        n : int
-            Number of periods between executions.
-        offset : int, optional
-            Offset for the first execution. If 0 (default), the algo will run
-            the first time it is called. Use a different offset to stagger
-            multiple strategies.
-
-    Examples
-    --------
-    Run every 3 periods, starting immediately:
-        RunEveryNPeriods(3)
-
-    Run every 3 periods, but start on the second period:
-        RunEveryNPeriods(3, offset=1)
+    Notes
+    -----
+    The algo uses a cyclic phase counter in ``[0, n-1]`` and triggers when
+    ``phase == offset``. It suppresses duplicate triggers when called multiple
+    times for the same ``target.now``.
     """
 
     def __init__(self, n: int, offset: int = 0):
-        """
-        Initialize RunEveryNPeriods.
+        """Initialize periodic trigger.
 
         Parameters
         ----------
         n : int
-            Number of periods between executions.
+            Positive interval between trigger events.
         offset : int, optional
-            Offset for first execution. Defaults to 0.
+            Initial trigger phase in ``[0, n - 1]``.
+
+        Raises
+        ------
+        TypeError
+            If ``n`` or ``offset`` is not an integer.
+        ValueError
+            If ``n <= 0`` or offset is outside ``[0, n - 1]``.
         """
         super().__init__()
-        self.n: int = n
-        self.offset: int = offset
-        self.idx: int = n - offset - 1  # internal counter
-        self.last_call = None  # tracks last period to avoid multiple calls
+        n_val = int(
+            validate_non_negative(
+                validate_integer(n, "RunEveryNPeriods `n`"),
+                "RunEveryNPeriods `n`",
+            )
+        )
+        offset_val = int(
+            validate_non_negative(
+                validate_integer(offset, "RunEveryNPeriods `offset`"),
+                "RunEveryNPeriods `offset`",
+            )
+        )
+        if n_val == 0:
+            raise ValueError("RunEveryNPeriods `n` must be > 0.")
+        if offset_val >= n_val:
+            raise ValueError("RunEveryNPeriods `offset` must satisfy 0 <= offset < n.")
+
+        self.n = n_val
+        self.offset = offset_val
+        self._phase = 0
+        self._last_call = None
 
     def __call__(self, target: Any) -> bool:
-        """
-        Determine whether the algo should run in the current period.
+        """Evaluate whether the current call should trigger.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            The backtest target containing the `now` attribute (current date).
+        target : Any
+            Target object expected to expose ``now``.
 
         Returns
         -------
         bool
-            True if the algo should execute this period, False otherwise.
+            ``True`` when current period is a trigger boundary, else ``False``.
         """
-        # prevent multiple triggers on the same period
-        if self.last_call == target.now:
+        now = getattr(target, "now", None)
+        if now is None:
             return False
 
-        self.last_call = target.now
-
-        if self.idx == self.n - 1:
-            # reset counter after triggering
-            self.idx = 0
-            return True
-        else:
-            self.idx += 1
+        if self._last_call == now:
             return False
+
+        self._last_call = now
+
+        should_run = self._phase == self.offset
+        self._phase = (self._phase + 1) % self.n
+        return should_run

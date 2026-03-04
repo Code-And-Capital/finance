@@ -1,0 +1,15 @@
+WITH latest_dates AS (
+    SELECT
+        [strategy],
+        MAX([DATE]) AS max_date
+    FROM [dbo].[llm]
+    WHERE 1=1
+    {llm_filter}
+    {date_filter}
+    GROUP BY [strategy]
+)
+SELECT l.*
+FROM [dbo].[llm] AS l
+INNER JOIN latest_dates AS ld
+    ON l.[strategy] = ld.[strategy]
+    AND l.[DATE] = ld.max_date

@@ -1,0 +1,17 @@
+WITH latest_dates AS (
+    SELECT
+        [TICKER],
+        {partition_column} AS partition_value,
+        MAX([DATE]) AS max_date
+    FROM [dbo].{table_name}
+    WHERE 1=1
+    {ticker_filter}
+    {date_filter}
+    GROUP BY [TICKER], {partition_column}
+)
+SELECT t.*
+FROM [dbo].{table_name} AS t
+INNER JOIN latest_dates AS ld
+    ON t.[TICKER] = ld.[TICKER]
+    AND t.{partition_column} = ld.partition_value
+    AND t.[DATE] = ld.max_date

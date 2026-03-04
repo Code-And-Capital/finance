@@ -1,257 +1,133 @@
+from typing import Any, Optional
+
 from bt.core.algo_base import Algo
-from typing import Optional
+import utils.logging as logging
 
 
 class PrintDate(Algo):
-    """
-    Algo that prints the current timestamp contained in the target context.
+    """Log the current simulation timestamp from the target.
 
-    This algorithm is primarily intended for debugging inside a strategy run.
-    It can help verify that the backtest engine is iterating through dates
-    correctly, or ensure that certain events are being triggered at expected
-    times.
-
-    Attributes
+    Parameters
     ----------
-    prefix : str, optional
-        A custom prefix printed before the date output. Useful for tagging
-        log lines when multiple debugging algos are in use.
+    prefix : str | None, optional
+        Optional text prepended to the logged timestamp.
+
+    Notes
+    -----
+    This algo is intended for diagnostics and always returns ``True`` so it
+    does not interrupt an algo stack.
     """
 
     def __init__(self, prefix: str | None = None):
-        """
-        Initialize the PrintDate debugging algo.
-
-        Parameters
-        ----------
-        prefix : str, optional
-            Optional text printed before the date. If not provided,
-            only the timestamp will be printed.
-        """
+        """Initialize the date logging algo."""
         self.prefix = prefix
 
-    def __call__(self, target) -> bool:
-        """
-        Execute the algo and print the current date.
+    def __call__(self, target: Any) -> bool:
+        """Log ``target.now``.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            The target context provided by the backtest engine. Must contain
-            a `now` attribute representing the current simulation timestamp.
+        target : Any
+            Target object expected to expose a ``now`` attribute.
 
         Returns
         -------
         bool
-            Always returns True so the algo chain continues.
+            Always ``True``.
         """
-        if self.prefix:
-            print(f"{self.prefix} {target.now}")
-        else:
-            print(target.now)
+        if not hasattr(target, "now"):
+            logging.log("[PrintDate] target is missing required attribute: 'now'")
+            return True
+
+        message = f"{self.prefix} {target.now}" if self.prefix else f"{target.now}"
+        logging.log(message)
 
         return True
 
 
 class PrintTempData(Algo):
-    """
-    Algo that prints the temporary data (`target.temp`) stored during a
-    backtest run.
+    """Log temporary algo state from ``target.temp``.
 
-    This is primarily used for debugging and introspection. The algorithm
-    allows formatted output to inspect specific keys or structures stored
-    in the temporary dictionary.
-
-    Examples
-    --------
-    Print the entire temp dictionary:
-        PrintTempData()
-
-    Print a specific value:
-        PrintTempData("current_vol={current_vol}")
-
-    Attributes
+    Parameters
     ----------
-    fmt_string : str or None
-        Optional string format pattern. If provided, it is formatted using
-        the contents of ``target.temp`` via ``fmt_string.format(**target.temp)``.
+    fmt_string : str | None, optional
+        Format string applied as ``fmt_string.format(**target.temp)``.
+        If ``None``, the full ``target.temp`` object is logged.
     """
 
     def __init__(self, fmt_string: Optional[str] = None):
-        """
-        Initialize the PrintTempData debugging algo.
-
-        Parameters
-        ----------
-        fmt_string : str, optional
-            A Python format string referencing keys inside ``target.temp``.
-            Example: ``"Momentum: {momentum_value}"``.
-            If None, the entire ``target.temp`` dictionary will be printed.
-        """
+        """Initialize temp-state logger."""
         super().__init__()
         self.fmt_string = fmt_string
 
-    def __call__(self, target) -> bool:
-        """
-        Execute the algorithm and print temporary data.
+    def __call__(self, target: Any) -> bool:
+        """Log temporary state for the provided target.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            The backtest target context containing a ``temp`` dictionary
-            that stores short-lived, intermediate values during strategy
-            evaluation.
+        target : Any
+            Target object expected to expose a ``temp`` attribute.
 
         Returns
         -------
         bool
-            Always returns True so that the algo chain continues.
-
-        Notes
-        -----
-        If ``fmt_string`` references keys that do not exist in ``target.temp``,
-        a KeyError will be caught and displayed, preventing the entire algo
-        chain from failing.
+            Always ``True``.
         """
+        if not hasattr(target, "temp"):
+            logging.log("[PrintTempData] target is missing required attribute: 'temp'")
+            return True
+
         if self.fmt_string is None:
-            print(target.temp)
+            logging.log(f"{target.temp}")
             return True
 
         try:
-            print(self.fmt_string.format(**target.temp))
+            logging.log(self.fmt_string.format(**target.temp))
         except KeyError as exc:
             missing_key = exc.args[0]
-            print(f"[PrintTempData] Missing key in target.temp: '{missing_key}'")
+            logging.log(f"[PrintTempData] Missing key in target.temp: '{missing_key}'")
         except Exception as exc:
-            print(f"[PrintTempData] Formatting error: {exc}")
+            logging.log(f"[PrintTempData] Formatting error: {exc}")
 
         return True
 
 
 class PrintInfo(Algo):
-    """
-    Debugging Algo that prints formatted information from the ``target``
-    strategy or node object.
+    """Log formatted attributes from the target object.
 
-    The formatting string is interpolated with attributes from the target's
-    ``__dict__``. This allows inspection of internal state such as ``name``,
-    ``now``, or any custom variables stored on the strategy object.
-
-    Examples
-    --------
-    Print basic info (default):
-        PrintInfo()
-
-    Print the strategy name and current date:
-        PrintInfo("Strategy {name} at {now}")
-
-    Print several pieces of metadata:
-        PrintInfo("Node {name}: Children={children}  Temp={temp}")
-
-    Attributes
+    Parameters
     ----------
-    fmt_string : str
-        A Python format string that will be interpolated with keys from
-        ``target.__dict__`` using ``fmt_string.format(**target.__dict__)``.
+    fmt_string : str, optional
+        Format string interpolated with ``target.__dict__``.
     """
 
     def __init__(self, fmt_string: str = "{name} {now}"):
-        """
-        Initialize the PrintInfo debugging algo.
-
-        Parameters
-        ----------
-        fmt_string : str, optional
-            A format string referencing attributes of the target node or strategy.
-            Defaults to ``"{name} {now}"``. If a referenced attribute does not
-            exist in ``target.__dict__``, a clear warning is printed.
-        """
+        """Initialize target-info logger."""
         super().__init__()
         self.fmt_string = fmt_string
 
-    def __call__(self, target) -> bool:
-        """
-        Execute the algo and print the formatted target information.
+    def __call__(self, target: Any) -> bool:
+        """Log formatted info for the provided target.
 
         Parameters
         ----------
-        target : bt.backtest.Target or bt.core.Node
-            An object whose attributes will be used for formatting. Typically
-            a Strategy, Node, or Target instance within the backtest engine.
+        target : Any
+            Target object whose attributes are available for formatting.
 
         Returns
         -------
         bool
-            Always ``True`` so that the algo chain continues.
-
-        Notes
-        -----
-        Any missing attributes referenced in the format string will be
-        reported rather than causing the algo chain to crash.
+            Always ``True``.
         """
         try:
-            print(self.fmt_string.format(**target.__dict__))
+            logging.log(self.fmt_string.format(**target.__dict__))
         except KeyError as exc:
             missing_key = exc.args[0]
-            print(
+            logging.log(
                 f"[PrintInfo] Missing attribute in target.__dict__: '{missing_key}' "
                 f"for fmt_string='{self.fmt_string}'"
             )
         except Exception as exc:
-            print(f"[PrintInfo] Formatting error: {exc}")
+            logging.log(f"[PrintInfo] Formatting error: {exc}")
 
-        return True
-
-
-class PrintRisk(Algo):
-    """
-    Algo that prints the risk attributes of a target object.
-
-    This class is a simple utility for inspecting the risk data associated
-    with a target in a backtesting context. The printed output can be either
-    the entire risk dictionary or a custom formatted string.
-
-    Args:
-        fmt_string (str, optional): A format string to display specific risk
-            attributes. Placeholders (e.g., `{volatility}`, `{drawdown}`)
-            should correspond to keys in the target's `risk` dictionary.
-            If not provided, the entire risk dictionary will be printed.
-
-    Example:
-        >>> algo = PrintRisk(fmt_string="Volatility: {volatility}, Drawdown: {max_drawdown}")
-        >>> algo(target)
-    """
-
-    def __init__(self, fmt_string: str = "") -> None:
-        """
-        Initializes the PrintRisk Algo.
-
-        Args:
-            fmt_string (str, optional): A format string to specify which
-                risk attributes to print. Defaults to an empty string, which
-                prints the full risk dictionary.
-        """
-        super().__init__()
-        self.fmt_string: str = fmt_string
-
-    def __call__(self, target) -> bool:
-        """
-        Prints the risk data of the given target.
-
-        If `fmt_string` was provided, prints the formatted risk attributes
-        using that string. Otherwise, prints the entire `risk` dictionary
-        of the target.
-
-        Args:
-            target (Any): The object whose risk attributes will be printed.
-                The object must have a `risk` attribute that is a dictionary.
-
-        Returns:
-            bool: Always returns True.
-        """
-        if hasattr(target, "risk"):
-            if self.fmt_string:
-                print(self.fmt_string.format(**target.risk))
-            else:
-                print(target.risk)
         return True

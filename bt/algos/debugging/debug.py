@@ -1,61 +1,40 @@
+from typing import Any, Callable
+
 from bt.core.algo_base import Algo
-from typing import Optional, Callable
+import utils.logging as logging
 
 
 class Debug(Algo):
-    """
-    Algo that invokes a Python debugger breakpoint (`pdb.set_trace()`), allowing
-    interactive inspection of the backtest environment.
+    """Trigger an interactive debugger breakpoint during algo execution.
 
-    This is intended purely for debugging. When triggered, execution will pause
-    and open an interactive debugging session where you can inspect variables,
-    step through code, or examine the ``target`` object through its StrategyBase
-    interface.
-
-    Examples
-    --------
-    Always trigger debugging:
-        Debug()
-
-    Trigger only when a condition is met:
-        Debug(condition=lambda t: t.now.day == 1)
-
-    Attributes
+    Parameters
     ----------
-    condition : callable or None
-        Optional function receiving the target. If provided, debugging will only
-        activate when ``condition(target)`` evaluates to True.
+    condition : Callable[[Any], bool] | None, optional
+        Optional predicate evaluated against the target. If provided, the
+        debugger is activated only when the predicate returns ``True``.
+
+    Notes
+    -----
+    This utility is intended for local development and diagnostics only.
     """
 
-    def __init__(self, condition: Optional[Callable] = None):
-        """
-        Initialize the Debug algo.
-
-        Parameters
-        ----------
-        condition : callable, optional
-            A function that accepts the target object and returns True when the
-            debugger should activate. If None, debugging is always triggered.
-        """
+    def __init__(self, condition: Callable[[Any], bool] | None = None):
+        """Initialize the conditional debugger trigger."""
         super().__init__()
         self.condition = condition
 
-    def __call__(self, target) -> bool:
-        """
-        Invoke `pdb.set_trace()` to start a debugging session.
+    def __call__(self, target: Any) -> bool:
+        """Evaluate condition and optionally invoke ``pdb.set_trace()``.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            The backtest context object available inside the debugging session.
-            You can inspect its attributes, temporary data, algo chain state,
-            and portfolio information.
+        target : Any
+            Target object passed by the algo stack.
 
         Returns
         -------
         bool
-            Always returns True so the algo chain continues after exiting the
-            debugger.
+            Always ``True`` so the algo stack continues.
         """
         import pdb
 
@@ -64,7 +43,10 @@ class Debug(Algo):
             try:
                 should_break = bool(self.condition(target))
             except Exception as exc:
-                print(f"[Debug] Condition function raised an exception: {exc}")
+                logging.log(
+                    f"[Debug] Condition function raised an exception: {exc}",
+                    type="warning",
+                )
                 should_break = False
 
         if should_break:

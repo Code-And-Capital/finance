@@ -1,8 +1,10 @@
-from utils.dataloading_utils import read_xls_file
+from connectors.xls_data_source import XLSDataSource
+import pytest
 
 
 def test_read_xls_file_parses_xml_correctly(tmp_path):
-    # --- Arrange ---
+    source = XLSDataSource()
+
     xml_content = """
     <Workbook>
         <Worksheet>
@@ -39,22 +41,18 @@ def test_read_xls_file_parses_xml_correctly(tmp_path):
     file_path = tmp_path / "testfile.xml"
     file_path.write_text(xml_content)
 
-    # --- Act ---
-    df = read_xls_file(file_path=str(file_path), sheet_number=0, skiprows=1)
+    df = source.read_xls_file(file_path=str(file_path), sheet_number=0, skiprows=1)
 
-    # --- Assert ---
-    # Expected columns after normalization:
-    # "COL A"  -> "COL_A"
-    # "COL B (%)" -> "COL_B"
     assert list(df.columns) == ["COL_A", "COL_B"]
-
-    # Expected data
     assert df.iloc[0]["COL_A"] == "1"
     assert df.iloc[0]["COL_B"] == "2"
+    assert source.file_path == str(file_path)
+    assert source.dataframe is not None
 
 
 def test_read_xls_file_selects_correct_sheet(tmp_path):
-    # --- Arrange ---
+    source = XLSDataSource()
+
     xml_content = """
     <Workbook>
         <Worksheet>
@@ -76,9 +74,13 @@ def test_read_xls_file_selects_correct_sheet(tmp_path):
     file_path = tmp_path / "testfile.xml"
     file_path.write_text(xml_content)
 
-    # --- Act ---
-    df = read_xls_file(str(file_path), sheet_number=1, skiprows=0)
+    df = source.set_file_path(str(file_path)).read(sheet_number=1, skiprows=0)
 
-    # --- Assert ---
     assert list(df.columns) == ["HEADER1"]
     assert df.iloc[0]["HEADER1"] == "Value1"
+
+
+def test_read_requires_file_path():
+    source = XLSDataSource()
+    with pytest.raises(ValueError, match="No XLS file path is set"):
+        source.read()

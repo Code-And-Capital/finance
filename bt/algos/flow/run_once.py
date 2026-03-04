@@ -1,69 +1,50 @@
+from typing import Any
+
 from bt.core.algo_base import Algo
-from typing import Optional
 
 
 class RunOnce(Algo):
-    """
-    Algo that only returns ``True`` on its first invocation. On all subsequent
-    calls, it returns ``False``.
+    """Return ``True`` at most once across the algo instance lifecycle.
 
-    This is useful in scenarios where an action should only be executed once
-    during the entire backtest—for example, performing an initial buy-and-hold
-    trade or initializing strategy state.
-
-    Examples
-    --------
-    Always run once:
-        RunOnce()
-
-    Conditionally run once:
-        RunOnce(run_on_first_call=False)
-
-    Attributes
+    Parameters
     ----------
-    run_on_first_call : bool
-        Whether the algorithm should run on the very first call.
-    has_run : bool
-        Tracks whether the algo has already executed.
+    run_on_first_call : bool, optional
+        If ``True`` (default), the first invocation returns ``True``.
+        If ``False``, all invocations return ``False``.
+
+    Notes
+    -----
+    State is instance-local. Reusing the same instance across backtests
+    preserves execution state.
+    If ``target.inow == 0`` (initial synthetic/bootstrapping row), this algo
+    returns ``False`` and does not consume its one-shot run.
     """
 
     def __init__(self, run_on_first_call: bool = True):
-        """
-        Initialize the RunOnce algo.
-
-        Parameters
-        ----------
-        run_on_first_call : bool, optional
-            If True (default), the algo returns True on its first call.
-            If False, the first call will also return False, and the algo
-            will never run.
-        """
+        """Initialize the one-shot execution gate."""
         super().__init__()
-        self.run_on_first_call = run_on_first_call
-        self.has_run = False
+        self.run_on_first_call = bool(run_on_first_call)
+        self._has_run = False
 
-    def __call__(self, target) -> bool:
-        """
-        Execute the algo.
-
-        Returns ``True`` only on the first call (depending on configuration),
-        and returns ``False`` on all further calls.
+    def __call__(self, target: Any) -> bool:
+        """Evaluate one-shot run eligibility.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            Backtest context object (unused, but required by algo signature).
+        target : Any
+            Unused target parameter required by the algo interface.
 
         Returns
         -------
         bool
-            True if the algo is executing for the first time and allowed to
-            run. False otherwise.
+            ``True`` only when the first invocation is permitted by
+            ``run_on_first_call``; otherwise ``False``.
         """
-        # First call
-        if not self.has_run:
-            self.has_run = True
+        if getattr(target, "inow", None) == 0:
+            return False
+
+        if not self._has_run:
+            self._has_run = True
             return self.run_on_first_call
 
-        # All subsequent calls
         return False

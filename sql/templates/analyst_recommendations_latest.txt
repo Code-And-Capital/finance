@@ -1,0 +1,15 @@
+WITH latest_dates AS (
+    SELECT
+        [TICKER],
+        MAX([DATE]) AS max_date
+    FROM [dbo].[analyst_recommendations]
+    WHERE 1=1
+    {ticker_filter}
+    {date_filter}
+    GROUP BY [TICKER]
+)
+SELECT ar.*
+FROM [dbo].[analyst_recommendations] AS ar
+INNER JOIN latest_dates AS ld
+    ON ar.[TICKER] = ld.[TICKER]
+    AND ar.[DATE] = ld.max_date

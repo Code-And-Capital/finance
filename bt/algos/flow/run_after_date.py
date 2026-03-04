@@ -1,55 +1,56 @@
-import pandas as pd
 from typing import Any, Union
+
+import pandas as pd
+
 from bt.core.algo_base import Algo
+from utils.date_utils import coerce_timestamp, coerce_timestamp_or_none
 
 
 class RunAfterDate(Algo):
-    """
-    Algo that triggers only after a specific date has passed.
+    """Return ``True`` only when the current date is strictly after a threshold.
 
-    This is useful for strategies that require an initial warm-up period,
-    such as calculating trailing averages or waiting until sufficient data
-    has accumulated before taking action.
+    Parameters
+    ----------
+    date : str | pandas.Timestamp | Any
+        Date-like value parsed by :func:`pandas.to_datetime`.
 
-    Args:
-        date : str, datetime, or pandas.Timestamp
-            The date after which the algo should start running.
-
-    Examples
-    --------
-    Start trading after January 1st, 2025:
-        RunAfterDate('2025-01-01')
-
-    Using a datetime object:
-        RunAfterDate(datetime(2025, 1, 1))
+    Notes
+    -----
+    This algo is strictly greater-than. When ``target.now == date``, it
+    returns ``False``.
     """
 
     def __init__(self, date: Union[str, pd.Timestamp, Any]):
-        """
-        Initialize RunAfterDate with the specified start date.
+        """Initialize the date threshold.
 
         Parameters
         ----------
-        date : str, datetime, or pandas.Timestamp
-            The date after which the algo should start executing.
-            It will be parsed internally to a pandas.Timestamp.
+        date : str | pandas.Timestamp | Any
+            Date-like value converted to ``pandas.Timestamp``.
+
+        Raises
+        ------
+        ValueError
+            If ``date`` cannot be parsed into a valid timestamp.
         """
         super().__init__()
-        self.date: pd.Timestamp = pd.to_datetime(date)
+        self.date: pd.Timestamp = coerce_timestamp(date, "RunAfterDate `date`")
 
     def __call__(self, target: Any) -> bool:
-        """
-        Execute the algo and determine if the current date is past
-        the specified start date.
+        """Evaluate whether target time is strictly after the configured date.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            The backtest target containing the `now` attribute (current date).
+        target : Any
+            Target object expected to expose a ``now`` attribute.
 
         Returns
         -------
         bool
-            True if `target.now` is after the specified date, False otherwise.
+            ``True`` when ``target.now > self.date``, else ``False``.
         """
-        return target.now > self.date
+        now = coerce_timestamp_or_none(getattr(target, "now", None))
+        if now is None:
+            return False
+
+        return now > self.date

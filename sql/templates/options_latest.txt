@@ -1,0 +1,15 @@
+WITH ranked AS (
+    SELECT
+        o.*,
+        ROW_NUMBER() OVER (
+            PARTITION BY [TICKER], [CONTRACTSYMBOL]
+            ORDER BY [DATE] DESC
+        ) AS _ROW_NUM
+    FROM [dbo].[options] AS o
+    WHERE 1=1
+    {ticker_filter}
+    {date_filter}
+)
+SELECT *
+FROM ranked
+WHERE _ROW_NUM = 1

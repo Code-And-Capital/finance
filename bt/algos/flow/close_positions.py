@@ -1,109 +1,116 @@
-from bt.core.algo_base import Algo
-from bt.core import SecurityBase
+from typing import Iterable, Union
+
 import pandas as pd
-from typing import Union
+
+from bt.core import SecurityBase
+from bt.core.algo_base import Algo
+from utils.date_utils import coerce_timestamp
+from utils.dataframe_utils import normalize_date_series, one_column_frame_to_series
 
 
 class ClosePositionsAfterDates(Algo):
-    """
-    Close positions on securities after specified dates.
+    """Close security positions when configured cutoff dates are reached.
 
-    This algorithm ensures that positions on matured, redeemed, or
-    time-limited securities are closed after a given date. It can be used
-    to enforce rules such as "do not hold securities with time to maturity
-    less than one year."
-
-    Notes:
-        - If placed after a RunPeriod algo in the stack, actual closing will
-          occur after the provided date. The price of the security must exist
-          up to that date, or use the @run_always decorator to close immediately.
-        - Does not operate via temp['weights'] and Rebalance, so hedges and
-          other special securities are also properly closed.
-
-    Args:
-        close_dates (str): Name of a DataFrame (indexed by security name) with a
-            "date" column indicating the date after which positions should be closed.
-
-    Sets:
-        target.perm['closed']: Set of securities already closed.
+    Parameters
+    ----------
+    close_dates : str | pandas.DataFrame | pandas.Series
+        Either a setup-data key retrievable via ``target.get_data(name)``, or
+        a one-column DataFrame/Series indexed by security name with date-like
+        values.
     """
 
-    def __init__(self, close_dates: Union[str, pd.DataFrame]) -> None:
-        """
-        Initialize ClosePositionsAfterDates.
+    def __init__(self, close_dates: Union[str, pd.DataFrame, pd.Series]) -> None:
+        """Initialize closing rule source.
 
-        Parameters:
-            close_dates (str): Name of the DataFrame with closing dates.
+        Notes
+        -----
+        Date sources are normalized into a canonical timestamp Series once and
+        cached. Candidate security names are also cached and recomputed only
+        when the child-name set changes.
         """
         super().__init__()
+        self._close_dates: pd.Series | None = None
+        self._close_name: str | None = None
+        self._close_index_names: set[str] = set()
+        self._candidate_security_names: tuple[str, ...] = ()
+        self._last_child_name_set: frozenset[str] | None = None
+
         if isinstance(close_dates, pd.Series):
-            self.close_dates = close_dates
-            self.close_name = None
-
+            self._close_dates = normalize_date_series(
+                close_dates.copy(), label="close date"
+            )
+            self._close_index_names = set(self._close_dates.index)
         elif isinstance(close_dates, pd.DataFrame):
-            if close_dates.shape[1] != 1:
-                raise ValueError("close_dates DataFrame must have exactly one column")
-            self.close_dates = close_dates.iloc[:, 0]
-            self.close_name = None
-
+            self._close_dates = normalize_date_series(
+                one_column_frame_to_series(close_dates), label="close date"
+            )
+            self._close_index_names = set(self._close_dates.index)
         else:
-            self.close_dates = None
-            self.close_name = close_dates
+            self._close_name = close_dates
+
+    def _resolve_close_dates(self, target) -> pd.Series:
+        if self._close_dates is not None:
+            return self._close_dates
+
+        source = target.get_data(self._close_name)
+        if isinstance(source, pd.DataFrame):
+            source = one_column_frame_to_series(source)
+        elif not isinstance(source, pd.Series):
+            raise TypeError(
+                "close_dates source must be a pandas Series or one-column DataFrame."
+            )
+
+        self._close_dates = normalize_date_series(source, label="close date")
+        self._close_index_names = set(self._close_dates.index)
+        return self._close_dates
+
+    def _refresh_candidate_names_if_needed(
+        self, child_names: Iterable[str], children: dict
+    ) -> None:
+        name_set = frozenset(child_names)
+        if name_set == self._last_child_name_set:
+            return
+
+        self._last_child_name_set = name_set
+        self._candidate_security_names = tuple(
+            name
+            for name in name_set
+            if name in self._close_index_names
+            and isinstance(children[name], SecurityBase)
+        )
 
     def __call__(self, target) -> bool:
-        """
-        Close positions for securities whose closing dates have passed.
+        """Close positions for securities with reached cutoff dates.
 
-        Steps:
-        1. Initialize target.perm['closed'] if not already present.
-        2. Fetch the close_dates DataFrame via target.get_data.
-        3. Identify securities eligible for closing.
-        4. Close positions and mark them as closed.
-        5. Update the target's root.
-
-        Parameters:
-            target: Strategy/backtest object providing:
-                - children: dict of current positions
-                - perm: dict for persistent info
-                - get_data(name): fetch DataFrame
-                - close(sec_name, update=False): method to close a position
-                - root.update(now): propagate updates
-
-        Returns:
-            bool: Always True
+        Returns
+        -------
+        bool
+            Always ``True``.
         """
         if "closed" not in target.perm:
             target.perm["closed"] = set()
 
-        if self.close_name is None:
-            close_dates_df = self.close_dates
-        else:
-            close_dates_df = target.get_data(self.close_name)
-            if isinstance(close_dates_df, pd.DataFrame):
-                if close_dates_df.shape[1] != 1:
-                    raise ValueError(
-                        "close_dates DataFrame must have exactly one column"
-                    )
-                close_dates_df = close_dates_df.iloc[:, 0]
+        close_dates_series = self._resolve_close_dates(target)
+        now_ts = coerce_timestamp(target.now, "target.now")
 
-        # Candidate securities for closing
+        children = target.children
+        self._refresh_candidate_names_if_needed(children.keys(), children)
         sec_names = [
             sec_name
-            for sec_name, sec in target.children.items()
-            if isinstance(sec, SecurityBase)
-            and sec_name in close_dates_df.index
-            and sec_name not in target.perm["closed"]
+            for sec_name in self._candidate_security_names
+            if sec_name not in target.perm["closed"]
         ]
 
-        # Determine which securities have passed their closing date
-        is_closed = close_dates_df.loc[sec_names] <= target.now
+        if not sec_names:
+            return True
 
-        # Close eligible positions
-        for sec_name in is_closed[is_closed == True].index:
+        closing_now = close_dates_series.loc[sec_names] <= now_ts
+        names_to_close = list(closing_now[closing_now].index)
+        for sec_name in names_to_close:
             target.close(sec_name, update=False)
             target.perm["closed"].add(sec_name)
 
-        # Update the root after closing
-        target.root.update(target.now)
+        if names_to_close:
+            target.root.update(target.now)
 
         return True

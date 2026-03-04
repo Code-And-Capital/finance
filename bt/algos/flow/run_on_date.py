@@ -1,57 +1,66 @@
+from collections.abc import Iterable
+from typing import Any
+
 import pandas as pd
-from typing import List, Union, Any
+
 from bt.core.algo_base import Algo
+from utils.date_utils import coerce_timestamp, coerce_timestamp_or_none
 
 
 class RunOnDate(Algo):
-    """
-    Algo that triggers only on a specific set of dates.
+    """Trigger only when ``target.now`` matches one of configured dates.
 
-    This is useful for backtests or strategies where certain actions
-    (e.g., dividends, manual rebalancing, reporting) should occur on
-    predefined dates.
+    Parameters
+    ----------
+    dates : Any
+        Date-like scalar or iterable of date-like values accepted by
+        :func:`pandas.to_datetime`.
 
-    Args:
-        dates : list of str, datetime, or pandas.Timestamp
-            The set of dates on which the algo should run. Each date
-            will be converted to a pandas.Timestamp internally.
-
-    Examples
-    --------
-    Run on two specific dates:
-        RunOnDate('2025-01-01', '2025-06-30')
-
-    Run on multiple datetime objects:
-        RunOnDate(datetime(2025,1,1), datetime(2025,6,30))
+    Notes
+    -----
+    Membership checks are set-based for predictable O(1) lookups.
     """
 
-    def __init__(self, dates: Union[str, pd.Timestamp, Any]):
-        """
-        Initialize RunOnDate with a list of dates.
+    def __init__(self, dates: Any):
+        """Initialize date membership trigger.
 
         Parameters
         ----------
-        *dates : variable length argument list
-            Dates to trigger the algo. Can be strings (YYYY-MM-DD),
-            pandas.Timestamp, or datetime objects. They will be parsed
-            into pandas.Timestamp internally.
+        dates : Any
+            Date-like scalar or iterable of date-like values.
+
+        Raises
+        ------
+        ValueError
+            If any configured date cannot be parsed into a valid timestamp.
         """
         super().__init__()
-        self.dates = [pd.to_datetime(d) for d in dates]
+        raw_dates = self._coerce_dates(dates)
+        parsed_dates: list[pd.Timestamp] = []
+        for raw in raw_dates:
+            parsed_dates.append(coerce_timestamp(raw, "RunOnDate `dates` entry"))
+        self._dates = frozenset(parsed_dates)
+
+    def _coerce_dates(self, dates: Any) -> list[Any]:
+        if isinstance(dates, (str, pd.Timestamp)) or not isinstance(dates, Iterable):
+            return [dates]
+        return list(dates)
 
     def __call__(self, target: Any) -> bool:
-        """
-        Execute the algo and determine if the current date is in the
-        set of target dates.
+        """Evaluate whether current target date is configured to run.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            The backtest target containing the `now` attribute (current date).
+        target : Any
+            Target object expected to expose ``now``.
 
         Returns
         -------
         bool
-            True if `target.now` is in the specified dates, False otherwise.
+            ``True`` when ``target.now`` matches a configured date, else
+            ``False``.
         """
-        return target.now in self.dates
+        now = coerce_timestamp_or_none(getattr(target, "now", None))
+        if now is None:
+            return False
+        return now in self._dates

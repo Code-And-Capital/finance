@@ -1,0 +1,17 @@
+WITH latest_dates AS (
+    SELECT
+        [INDEX],
+        MAX([DATE]) AS max_date
+    FROM [dbo].[holdings]
+    WHERE 1=1
+    {index_filter}
+    {date_filter}
+    GROUP BY [INDEX]
+)
+SELECT h.*
+FROM [dbo].[holdings] AS h
+INNER JOIN latest_dates AS ld
+    ON h.[INDEX] = ld.[INDEX]
+    AND h.[DATE] = ld.max_date
+WHERE 1=1
+{ticker_filter}

@@ -1,8 +1,14 @@
-from visualization.charts import Contour, Scatter
-from visualization.figure import Figure
+"""Machine learning visualization helpers."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, Any, Tuple
+
+from visualization.charts import Contour, Scatter
+from visualization.figure import Figure
 
 
 class KNNPlotter:
@@ -64,6 +70,12 @@ class KNNPlotter:
         self.mesh_size = mesh_size
         self.fig: Optional[Figure] = None
         self._computed = False
+
+    @staticmethod
+    def _label_mask(labels: np.ndarray, label: int) -> np.ndarray:
+        """Build a robust class mask supporting numeric or string labels."""
+        series = pd.Series(labels)
+        return ((series == label) | (series.astype(str) == str(label))).to_numpy()
 
     # -------------------------------------------------------------------------
     # Internal Helpers
@@ -177,10 +189,12 @@ class KNNPlotter:
 
         # Add scatter plots
         for label in [0, 1]:
+            train_mask = self._label_mask(self.y_train, label)
+            test_mask = self._label_mask(self.y_test, label)
             self.fig.add_chart(
                 self._make_scatter(
-                    self.x_train[self.y_train == str(label), 0],
-                    self.x_train[self.y_train == str(label), 1],
+                    self.x_train[train_mask, 0],
+                    self.x_train[train_mask, 1],
                     label,
                     "Train",
                     "square" if label == 0 else "circle",
@@ -188,8 +202,8 @@ class KNNPlotter:
             )
             self.fig.add_chart(
                 self._make_scatter(
-                    self.x_test[self.y_test == str(label), 0],
-                    self.x_test[self.y_test == str(label), 1],
+                    self.x_test[test_mask, 0],
+                    self.x_test[test_mask, 1],
                     label,
                     "Test",
                     "square-dot" if label == 0 else "circle-dot",
@@ -207,7 +221,7 @@ class KNNPlotter:
         title: Optional[str] = "KNN Decision Boundary",
         template: str = "plotly_dark",
         font_size: int = 14,
-        margin: Dict[str, int] = dict(l=75, r=50, t=60, b=45),
+        margin: Optional[Dict[str, int]] = None,
         showlegend: bool = True,
         height: int = 700,
         width: int = 900,
@@ -223,7 +237,7 @@ class KNNPlotter:
             Plotly template style to apply.
         font_size : int, default=14
             Global font size.
-        margin : dict, default=dict(l=75, r=50, t=60, b=45)
+        margin : dict, optional
             Margins for layout spacing.
         showlegend : bool, default=True
             Whether to display legend.
@@ -241,7 +255,9 @@ class KNNPlotter:
             title=title,
             template=template,
             font_size=font_size,
-            margin=margin,
+            margin=(
+                margin if margin is not None else {"l": 75, "r": 50, "t": 60, "b": 45}
+            ),
             showlegend=showlegend,
             height=height,
             width=width,

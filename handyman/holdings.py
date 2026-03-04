@@ -1,128 +1,131 @@
+from __future__ import annotations
+
+"""Holdings query helpers for index and LLM strategy portfolios."""
+
+from typing import Optional, Sequence
+
 import pandas as pd
-import os
-import utils.azure_utils as azure_utils
-from utils.list_utils import normalize_to_list
-from utils.query_utils import render_sql_query
+
+from handyman.base import DateLike, run_sql_template
+from sql.script_factory import default_sql_client
+from utils.dataframe_utils import ensure_datetime_column
+from utils.list_utils import normalize_string_list
 
 
-def get_index_holdings(indices=None, tickers=None, start_date=None, configs_path=None):
-    """
-    Retrieve index holdings from the holdings table with optional filters.
+def get_index_holdings(
+    indices: Optional[Sequence[str] | str] = None,
+    tickers: Optional[Sequence[str] | str] = None,
+    start_date: Optional[DateLike] = None,
+    end_date: Optional[DateLike] = None,
+    configs_path: Optional[str] = None,
+    get_latest: bool = False,
+) -> pd.DataFrame:
+    """Return index holdings filtered by index name, ticker, and date.
 
     Parameters
     ----------
-    indices : str or sequence of str, optional
-        Index identifier(s) to filter on (e.g. 'SP500' or ['SP500', 'NASDAQ100']).
-    tickers : str or sequence of str, optional
-        Ticker symbol(s) to filter on.
-    start_date : str or datetime-like, optional
-        Earliest date (inclusive) for which holdings should be returned.
+    indices
+        Optional index names for filtering (for example ``SP500``).
+    tickers
+        Optional ticker filter value(s).
+    start_date
+        Optional inclusive lower bound applied to ``DATE``.
+    end_date
+        Optional inclusive upper bound applied to ``DATE``.
+    configs_path
+        Optional path to the configuration file with Azure credentials.
+    get_latest
+        If True, return only the latest holdings snapshot per index and ignore
+        ``start_date``.
 
     Returns
     -------
     pandas.DataFrame
-        Holdings data with DATE converted to datetime.
-
-    Notes
-    -----
-    - String inputs are treated as a single index or ticker.
-    - SQL is constructed via string interpolation; inputs are assumed trusted.
+        Holdings rows with ``DATE`` coerced to datetime.
     """
-
-    indices = normalize_to_list(indices)
-    tickers = normalize_to_list(tickers)
-
-    index_filter = ""
-    ticker_filter = ""
-    date_filter = ""
-
-    if indices:
-        index_string = "', '".join(indices)
-        index_filter = f"""AND "INDEX" IN ('{index_string}')"""
-
-    if tickers:
-        ticker_string = "', '".join(tickers)
-        ticker_filter = f"AND TICKER IN ('{ticker_string}')"
-
-    if start_date:
-        date_filter = f"AND DATE >= '{start_date}'"
-
-    query_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "..",
-            "sql",
-            "holdings.txt",
+    normalized_indices = normalize_string_list(indices, field_name="indices")
+    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
+    sql_file = "holdings_latest.txt" if get_latest else "holdings.txt"
+    date_filter = (
+        ""
+        if get_latest
+        else "\n".join(
+            filter_text
+            for filter_text in [
+                default_sql_client.add_date_filter("DATE", start_date),
+                default_sql_client.add_end_date_filter("DATE", end_date),
+            ]
+            if filter_text
         )
     )
 
-    query = render_sql_query(
-        query_path=query_path,
+    df = run_sql_template(
+        sql_file=sql_file,
         filters={
-            "ticker_filter": ticker_filter,
+            "index_filter": default_sql_client.add_in_filter(
+                '"INDEX"', normalized_indices
+            ),
+            "ticker_filter": default_sql_client.add_in_filter(
+                "TICKER", normalized_tickers
+            ),
             "date_filter": date_filter,
-            "index_filter": index_filter,
         },
+        configs_path=configs_path,
     )
 
-    engine = azure_utils.get_azure_engine(configs_path=configs_path)
-
-    df = azure_utils.read_sql_table(engine=engine, query=query)
-    df["DATE"] = pd.to_datetime(df["DATE"])
-    return df
+    return ensure_datetime_column(df, "DATE")
 
 
-def get_llm_holdings(llms=None, start_date=None, configs_path=None):
-    """
-    Retrieve LLM holdings from the database with optional filters for strategies
-    and start date.
+def get_llm_holdings(
+    llms: Optional[Sequence[str] | str] = None,
+    start_date: Optional[DateLike] = None,
+    end_date: Optional[DateLike] = None,
+    configs_path: Optional[str] = None,
+    get_latest: bool = False,
+) -> pd.DataFrame:
+    """Return LLM strategy holdings filtered by strategy and date.
 
     Parameters
     ----------
-    llms : str, sequence of str, or array-like, optional
-        Strategy names to filter. Single string is treated as one strategy.
-    start_date : str or datetime-like, optional
-        Earliest date (inclusive) to filter the holdings.
+    llms
+        Optional LLM strategy names for filtering.
+    start_date
+        Optional inclusive lower bound applied to ``DATE``.
+    end_date
+        Optional inclusive upper bound applied to ``DATE``.
+    configs_path
+        Optional path to the configuration file with Azure credentials.
+    get_latest
+        If True, return only the latest holdings snapshot per strategy and
+        ignore ``start_date``.
 
     Returns
     -------
     pandas.DataFrame
-        Holdings data for the requested strategies and date range.
-
-    Notes
-    -----
-    - Uses `normalize_to_list` internally to handle single strings, sequences,
-      or array-like inputs.
-    - SQL query is constructed via string interpolation.
+        Holdings rows with ``DATE`` coerced to datetime.
     """
-    llms = normalize_to_list(llms)
-
-    llm_filter = ""
-    date_filter = ""
-
-    if llms:
-        llm_string = "', '".join(llms)
-        llm_filter = f"""AND strategy IN ('{llm_string}')"""
-
-    if start_date:
-        date_filter = f"AND DATE >= '{start_date}'"
-
-    query_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "..",
-            "sql",
-            "llm_holdings.txt",
+    normalized_llms = normalize_string_list(llms, field_name="llms")
+    sql_file = "llm_holdings_latest.txt" if get_latest else "llm_holdings.txt"
+    date_filter = (
+        ""
+        if get_latest
+        else "\n".join(
+            filter_text
+            for filter_text in [
+                default_sql_client.add_date_filter("DATE", start_date),
+                default_sql_client.add_end_date_filter("DATE", end_date),
+            ]
+            if filter_text
         )
     )
 
-    query = render_sql_query(
-        query_path=query_path,
-        filters={"llm_filter": llm_filter, "date_filter": date_filter},
+    df = run_sql_template(
+        sql_file=sql_file,
+        filters={
+            "llm_filter": default_sql_client.add_in_filter("strategy", normalized_llms),
+            "date_filter": date_filter,
+        },
+        configs_path=configs_path,
     )
 
-    engine = azure_utils.get_azure_engine(configs_path=configs_path)
-
-    df = azure_utils.read_sql_table(engine=engine, query=query)
-    df["DATE"] = pd.to_datetime(df["DATE"])
-    return df
+    return ensure_datetime_column(df, "DATE")

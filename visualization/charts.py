@@ -2,7 +2,6 @@ from __future__ import annotations
 import abc
 import uuid
 import itertools
-import copy
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 
 import numpy as np
@@ -1281,9 +1280,7 @@ class Waterfall(Chart):
         self.traces.append(trace)
 
         if title:
-            self.update_layout(title=title)
-        if y_format:
-            self.update_yaxes(tickformat=y_format)
+            self._add_layout_update({"title": title})
 
         return self
 
@@ -1458,16 +1455,31 @@ class ScatterGeo(Chart):
         else:
             text_values = None
 
+        # Resolve marker channels from dataframe columns when column names are provided.
+        size_values = size
+        if isinstance(size, str):
+            if size not in self.data.columns:
+                raise KeyError(f"Column '{size}' not in dataframe.")
+            size_values = self.data[size]
+
+        color_values = color
+        if isinstance(color, str) and color in self.data.columns:
+            color_values = self.data[color]
+
+        symbol_values = symbol
+        if isinstance(symbol, str) and symbol in self.data.columns:
+            symbol_values = self.data[symbol]
+
         marker = {
             "opacity": opacity,
             "line": {"width": line_width, "color": line_color},
         }
-        if size is not None:
-            marker["size"] = size
-        if color is not None:
-            marker["color"] = color
-        if symbol is not None:
-            marker["symbol"] = symbol
+        if size_values is not None:
+            marker["size"] = size_values
+        if color_values is not None:
+            marker["color"] = color_values
+        if symbol_values is not None:
+            marker["symbol"] = symbol_values
 
         trace = go.Scattergeo(
             lat=self.data[lat],

@@ -1,63 +1,119 @@
+from __future__ import annotations
+
+"""Company information query helpers."""
+
+from typing import Optional, Sequence
+
 import pandas as pd
-import os
-import utils.azure_utils as azure_utils
-from utils.list_utils import normalize_to_list
-from utils.query_utils import render_sql_query
+
+from handyman.base import DateLike, read_table_by_filters, run_sql_template
+from sql.script_factory import default_sql_client
+from utils.dataframe_utils import ensure_datetime_column
+from utils.list_utils import normalize_string_list
 
 
-def get_company_info(tickers=None, start_date=None, configs_path=None):
-    """
-    Retrieve company-level information with optional ticker and date filters.
+def get_company_info(
+    tickers: Optional[Sequence[str] | str] = None,
+    start_date: Optional[DateLike] = None,
+    end_date: Optional[DateLike] = None,
+    configs_path: Optional[str] = None,
+    get_latest: bool = False,
+) -> pd.DataFrame:
+    """Return company information with optional ticker/date filters.
 
     Parameters
     ----------
-    tickers : str, sequence of str, or array-like, optional
-        Ticker symbol(s) to filter on. A single string is treated as one ticker.
-        If None, no ticker filtering is applied.
-    start_date : str or datetime-like, optional
-        Earliest date (inclusive) to include in the results.
-        If None, no date filtering is applied.
+    tickers
+        Optional ticker filter.
+    start_date
+        Optional inclusive lower-bound filter for ``DATE``.
+    end_date
+        Optional inclusive upper-bound filter for ``DATE``.
+    configs_path
+        Optional configs path for Azure credentials.
+    get_latest
+        If True, return only the latest row per ticker. In this mode
+        ``start_date`` is ignored.
 
     Returns
     -------
     pandas.DataFrame
-        Company information data with the DATE column converted to datetime.
-
-    Notes
-    -----
-    - Inputs are normalized using `normalize_to_list` to support strings,
-      lists, tuples, NumPy arrays, and pandas Series.
-    - SQL is constructed via string interpolation; inputs are assumed trusted.
+        Company information rows with ``DATE`` coerced to datetime.
     """
-
-    tickers = normalize_to_list(tickers)
-
-    ticker_filter = ""
-    date_filter = ""
-
-    if tickers:
-        ticker_string = "', '".join(tickers)
-        ticker_filter = f"AND TICKER IN ('{ticker_string}')"
-
-    if start_date:
-        date_filter = f"AND DATE >= '{start_date}'"
-
-    query_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "..",
-            "sql",
-            "company_info.txt",
+    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
+    ticker_filter = default_sql_client.add_in_filter("TICKER", normalized_tickers)
+    date_filter = (
+        ""
+        if get_latest
+        else "\n".join(
+            part
+            for part in [
+                default_sql_client.add_date_filter("DATE", start_date),
+                default_sql_client.add_end_date_filter("DATE", end_date),
+            ]
+            if part
         )
     )
+    sql_file = "company_info_latest.txt" if get_latest else "company_info.txt"
 
-    query = render_sql_query(
-        query_path=query_path,
-        filters={"ticker_filter": ticker_filter, "date_filter": date_filter},
+    df = run_sql_template(
+        sql_file=sql_file,
+        filters={
+            "ticker_filter": ticker_filter,
+            "date_filter": date_filter,
+        },
+        configs_path=configs_path,
     )
+    if "_ROW_NUM" in df.columns:
+        df = df.drop(columns=["_ROW_NUM"])
 
-    engine = azure_utils.get_azure_engine(configs_path=configs_path)
+    return ensure_datetime_column(df, "DATE")
 
-    df = azure_utils.read_sql_table(engine=engine, query=query)
-    df["DATE"] = pd.to_datetime(df["DATE"])
-    return df
+
+def get_officers(
+    *,
+    tickers: Optional[Sequence[str] | str] = None,
+    start_date: Optional[DateLike] = None,
+    end_date: Optional[DateLike] = None,
+    configs_path: Optional[str] = None,
+    get_latest: bool = False,
+) -> pd.DataFrame:
+    """Return officer rows with optional ticker/date filters.
+
+    Parameters
+    ----------
+    tickers
+        Optional ticker filter.
+    start_date
+        Optional inclusive lower-bound filter for ``DATE``.
+    end_date
+        Optional inclusive upper-bound filter for ``DATE``.
+    configs_path
+        Optional configs path for Azure credentials.
+    get_latest
+        If True, return only the latest officer snapshot per ticker and ignore
+        ``start_date``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Officer rows with ``DATE`` coerced to datetime.
+    """
+    if not get_latest:
+        df = read_table_by_filters(
+            table_name="officers",
+            tickers=tickers,
+            start_date=start_date,
+            end_date=end_date,
+            configs_path=configs_path,
+        )
+        return ensure_datetime_column(df, "DATE")
+
+    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
+    ticker_filter = default_sql_client.add_in_filter("TICKER", normalized_tickers)
+    df = run_sql_template(
+        sql_file="officers_latest.txt",
+        filters={"ticker_filter": ticker_filter, "date_filter": ""},
+        configs_path=configs_path,
+    )
+    return ensure_datetime_column(df, "DATE")

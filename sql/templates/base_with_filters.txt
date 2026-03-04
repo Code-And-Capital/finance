@@ -1,0 +1,4 @@
+SELECT *
+FROM {schema}.{table_name}
+WHERE 1 = 1
+{filters_sql}

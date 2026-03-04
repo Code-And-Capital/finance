@@ -1,10 +1,11 @@
 import pytest
 from pathlib import Path
 
-from utils.query_utils import render_sql_query
+from sql.script_factory import SQLClient
 
 
 def test_render_sql_query_replaces_all_placeholders(tmp_path: Path):
+    client = SQLClient()
     sql_file = tmp_path / "query.sql"
     sql_file.write_text(
         """
@@ -16,7 +17,7 @@ def test_render_sql_query_replaces_all_placeholders(tmp_path: Path):
         """
     )
 
-    result = render_sql_query(
+    result = client.render_sql_query(
         query_path=sql_file,
         filters={
             "ticker_filter": "AND ticker = 'AAPL'",
@@ -24,6 +25,7 @@ def test_render_sql_query_replaces_all_placeholders(tmp_path: Path):
         },
     )
 
+    assert client.query() == result
     assert "{ticker_filter}" not in result
     assert "{date_filter}" not in result
     assert "AND ticker = 'AAPL'" in result
@@ -31,6 +33,7 @@ def test_render_sql_query_replaces_all_placeholders(tmp_path: Path):
 
 
 def test_render_sql_query_ignores_extra_filters(tmp_path: Path):
+    client = SQLClient()
     sql_file = tmp_path / "query.sql"
     sql_file.write_text(
         """
@@ -41,7 +44,7 @@ def test_render_sql_query_ignores_extra_filters(tmp_path: Path):
         """
     )
 
-    result = render_sql_query(
+    result = client.render_sql_query(
         query_path=sql_file,
         filters={
             "llm_filter": "AND model = 'gpt-4'",
@@ -54,6 +57,7 @@ def test_render_sql_query_ignores_extra_filters(tmp_path: Path):
 
 
 def test_render_sql_query_missing_filter_raises_value_error(tmp_path: Path):
+    client = SQLClient()
     sql_file = tmp_path / "query.sql"
     sql_file.write_text(
         """
@@ -66,7 +70,7 @@ def test_render_sql_query_missing_filter_raises_value_error(tmp_path: Path):
     )
 
     with pytest.raises(ValueError) as exc:
-        render_sql_query(
+        client.render_sql_query(
             query_path=sql_file,
             filters={
                 "ticker_filter": "AND ticker = 'AAPL'",
@@ -79,6 +83,7 @@ def test_render_sql_query_missing_filter_raises_value_error(tmp_path: Path):
 
 
 def test_render_sql_query_with_no_placeholders(tmp_path: Path):
+    client = SQLClient()
     sql_file = tmp_path / "query.sql"
     original_sql = """
         SELECT *
@@ -87,7 +92,7 @@ def test_render_sql_query_with_no_placeholders(tmp_path: Path):
     """
     sql_file.write_text(original_sql)
 
-    result = render_sql_query(
+    result = client.render_sql_query(
         query_path=sql_file,
         filters={
             "unused_filter": "SHOULD_BE_IGNORED",
@@ -98,14 +103,16 @@ def test_render_sql_query_with_no_placeholders(tmp_path: Path):
 
 
 def test_render_sql_query_file_not_found():
+    client = SQLClient()
     with pytest.raises(FileNotFoundError):
-        render_sql_query(
+        client.render_sql_query(
             query_path="does_not_exist.sql",
             filters={},
         )
 
 
 def test_render_sql_query_complex_placeholder_names(tmp_path: Path):
+    client = SQLClient()
     sql_file = tmp_path / "query.sql"
     sql_file.write_text(
         """
@@ -116,7 +123,7 @@ def test_render_sql_query_complex_placeholder_names(tmp_path: Path):
         """
     )
 
-    result = render_sql_query(
+    result = client.render_sql_query(
         query_path=sql_file,
         filters={
             "index_filter_1": "AND idx = 42",
@@ -124,3 +131,17 @@ def test_render_sql_query_complex_placeholder_names(tmp_path: Path):
     )
 
     assert "AND idx = 42" in result
+
+
+def test_query_state_methods():
+    client = SQLClient()
+
+    with pytest.raises(ValueError, match="No query"):
+        client.query()
+
+    client.set_query("SELECT 1")
+    assert client.query() == "SELECT 1"
+
+    client.clear()
+    with pytest.raises(ValueError, match="No query"):
+        client.query()

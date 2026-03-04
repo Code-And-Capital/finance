@@ -1,110 +1,84 @@
+from __future__ import annotations
+
 import pandas as pd
+from utils.date_utils import coerce_timestamp
 
 
 def convert_columns_to_numeric(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Converts the columns of a pandas DataFrame to numeric types wherever possible.
-
-    This function attempts to convert each column in the provided DataFrame to a numeric type.
-    If a column cannot be converted (e.g., it contains non-numeric data), it is left unchanged.
-
-    Args:
-        df (pd.DataFrame): The input DataFrame whose columns will be evaluated and converted if possible.
-
-    Returns:
-        pd.DataFrame: The updated DataFrame with numeric conversions applied where possible.
-    """
-    # Iterate over each column in the DataFrame
-    for col in df:
+    """Attempt numeric conversion for each DataFrame column."""
+    out = df.copy()
+    for column in out.columns:
         try:
-            # Attempt to convert the column to a numeric type
-            df[col] = pd.to_numeric(df[col])
-        except ValueError:
-            # If conversion fails (due to non-numeric values), leave the column unchanged
+            out[column] = pd.to_numeric(out[column])
+        except (ValueError, TypeError):
             pass
-    return df
+    return out
 
 
-def df_to_dict(df, key_col, value_col):
-    """
-    Convert two columns of a DataFrame into a dictionary.
-
-    Args:
-        df (pd.DataFrame): Input DataFrame.
-        key_col (str): Column name to use as keys.
-        value_col (str): Column name to use as values.
-
-    Returns:
-        dict: Dictionary mapping key_col → value_col.
-    """
+def df_to_dict(df: pd.DataFrame, key_col, value_col) -> dict:
+    """Convert two columns of a DataFrame into a dictionary."""
     return df.set_index(key_col)[value_col].to_dict()
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Standardize the column names of a DataFrame.
-
-    This function converts all column names to uppercase and replaces
-    spaces with underscores, making them consistent and suitable for
-    downstream processing or database storage.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        The input DataFrame whose column names will be normalized.
-
-    Returns
-    -------
-    pd.DataFrame
-        A DataFrame with normalized column names.
-    """
-    df.columns = [str(c).upper().replace(" ", "_") for c in df.columns]
-    return df
+    """Uppercase and underscore-normalize DataFrame columns."""
+    out = df.copy()
+    out.columns = [str(column).upper().replace(" ", "_") for column in out.columns]
+    return out
 
 
-import pandas as pd
+def ensure_datetime_column(df: pd.DataFrame, column: str = "DATE") -> pd.DataFrame:
+    """Validate and coerce a column to pandas datetime."""
+    if column not in df.columns:
+        raise ValueError(f"Expected column '{column}' in SQL results")
+
+    out = df.copy()
+    # Parse as UTC to support mixed/aware timestamps, then drop tz for uniform naive dtype.
+    out[column] = pd.to_datetime(out[column], errors="raise", utc=True).dt.tz_localize(
+        None
+    )
+    return out
 
 
-def add_missing_tickers(df, ticker_list):
-    """
-    Ensure all tickers in `ticker_list` are present in the DataFrame.
-
-    Any ticker not already present in the `TICKER` column is appended as a new
-    row with a default START_DATE of '2000-01-01'.
+def one_column_frame_to_series(frame: pd.DataFrame) -> pd.Series:
+    """Return the single column in a DataFrame as a Series.
 
     Parameters
     ----------
-    df : pandas.DataFrame
-        DataFrame containing at least a 'TICKER' column.
-    ticker_list : sequence of str
-        List of ticker symbols that must appear in the output DataFrame.
+    frame : pandas.DataFrame
+        Input DataFrame that must have exactly one column.
 
     Returns
     -------
-    pandas.DataFrame
-        A DataFrame containing all original rows plus any missing tickers.
+    pandas.Series
+        The sole column as a Series.
 
     Raises
     ------
-    KeyError
-        If the input DataFrame does not contain a 'TICKER' column.
+    ValueError
+        If ``frame`` does not have exactly one column.
     """
+    if frame.shape[1] != 1:
+        raise ValueError("DataFrame must have exactly one column.")
+    return frame.iloc[:, 0]
 
-    if "TICKER" not in df.columns:
-        raise KeyError("DataFrame must contain a 'TICKER' column")
 
-    df = df.copy()
+def normalize_date_series(series: pd.Series, label: str = "date") -> pd.Series:
+    """Coerce all values in a Series to validated pandas timestamps.
 
-    existing = set(df["TICKER"])
-    missing = [t for t in ticker_list if t not in existing]
+    Parameters
+    ----------
+    series : pandas.Series
+        Input Series containing date-like values.
+    label : str, optional
+        Field label used in timestamp coercion error messages.
 
-    if missing:
-        new_rows = pd.DataFrame(
-            {
-                "TICKER": missing,
-                "START_DATE": "2000-01-01",
-            }
-        )
-        df = pd.concat([df, new_rows], ignore_index=True)
-
-    return df
+    Returns
+    -------
+    pandas.Series
+        Series with the same index and ``pandas.Timestamp`` values.
+    """
+    return pd.Series(
+        [coerce_timestamp(value, label) for value in series.values],
+        index=series.index,
+    )

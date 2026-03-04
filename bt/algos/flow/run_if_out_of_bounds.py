@@ -1,75 +1,147 @@
 from typing import Any
+
 from bt.core.algo_base import Algo
+from utils.math_utils import validate_non_negative
 
 
 class RunIfOutOfBounds(Algo):
-    """
-    Algo that triggers when any security weight deviates beyond a given tolerance.
+    """Trigger when asset weights drift outside a tolerance threshold.
 
-    This is useful for strategies where rebalancing occurs either periodically
-    or when the portfolio weights drift too far from targets.
+    Parameters
+    ----------
+    tolerance : float
+        Non-negative drift threshold.
+    mode : str, optional
+        Drift mode. ``"relative"`` computes ``abs((current-target)/target)``
+        for non-zero targets (and ``abs(current)`` when target is zero).
+        ``"absolute"`` computes ``abs(current-target)``.
 
-    Examples
-    --------
-    Rebalance quarterly or when any security deviates by more than 20%:
-        Or([RunQuarterly(), RunIfOutOfBounds(0.2)])
-
-    Args:
-        tolerance : float
-            Maximum allowed deviation from the target weight before triggering.
-            Expressed as a fraction (e.g., 0.2 = 20%).
-
-    Requires:
-        - `weights` stored in `target.temp`
+    Notes
+    -----
+    This class only evaluates non-cash entries from ``target.temp["weights"]``.
+    Use :class:`RunIfCashOutOfBounds` for cash drift checks.
     """
 
-    def __init__(self, tolerance: float):
-        """
-        Initialize RunIfOutOfBounds.
+    def __init__(self, tolerance: float, mode: str = "relative"):
+        """Initialize drift-triggered rebalance condition.
 
         Parameters
         ----------
         tolerance : float
-            Maximum deviation allowed for any security before triggering.
+            Non-negative drift threshold.
+        mode : str, optional
+            Drift metric mode (``"relative"`` or ``"absolute"``).
+        Raises
+        ------
+        ValueError
+            If ``tolerance`` is negative, or if mode is invalid.
         """
         super().__init__()
-        self.tolerance: float = float(tolerance)
+        if mode not in {"relative", "absolute"}:
+            raise ValueError(
+                "RunIfOutOfBounds `mode` must be 'relative' or 'absolute'."
+            )
+
+        self.tolerance = validate_non_negative(
+            tolerance, "RunIfOutOfBounds `tolerance`"
+        )
+        self.mode = mode
+
+    def _drift(self, current: float, target: float) -> float:
+        if self.mode == "absolute":
+            return abs(current - target)
+        if target == 0:
+            return abs(current)
+        return abs((current - target) / target)
+
+    def _is_outside(self, drift: float) -> bool:
+        return drift > self.tolerance
+
+    def _weight_items(self, weight_mapping: Any):
+        if hasattr(weight_mapping, "items"):
+            return list(weight_mapping.items())
+        return None
 
     def __call__(self, target: Any) -> bool:
-        """
-        Determine if any security or cash weight is outside the tolerance.
+        """Evaluate whether target allocations are out of bounds.
 
         Parameters
         ----------
-        target : bt.backtest.Target
-            The backtest target object, which must include `temp['weights']`.
+        target : Any
+            Target object expected to expose ``temp`` and ``children``.
 
         Returns
         -------
         bool
-            True if any weight or cash allocation exceeds the tolerance, False otherwise.
+            ``True`` when any tracked allocation exceeds tolerance, otherwise
+            ``False``. Returns ``False`` when required state is missing.
         """
-        # If no weights are defined yet, allow algo to run
-        if "weights" not in target.temp:
-            return True
+        temp = getattr(target, "temp", None)
+        if not isinstance(temp, dict):
+            return False
 
-        targets = target.temp["weights"]
+        if "weights" not in temp:
+            return False
 
-        # Check each child security
-        for cname, target_weight in targets.items():
-            if cname in target.children:
-                current_weight = target.children[cname].weight
-                deviation = abs((current_weight - target_weight) / target_weight)
-                if deviation > self.tolerance:
-                    return True
+        items = self._weight_items(temp["weights"])
+        if items is None:
+            return False
 
-        # Optional: check cash deviation
-        if "cash" in target.temp:
-            cash_target = targets.value  # assumes targets.value includes total capital
-            cash_deviation = abs(
-                (target.capital - cash_target) / cash_target - target.temp["cash"]
-            )
-            if cash_deviation > self.tolerance:
+        children = getattr(target, "children", {})
+        for cname, desired_weight in items:
+            if cname == "cash":
+                continue
+
+            current_weight = children[cname].weight if cname in children else 0.0
+            drift = self._drift(current_weight, desired_weight)
+            if self._is_outside(drift):
                 return True
 
         return False
+
+
+class RunIfCashOutOfBounds(Algo):
+    """Trigger when cash allocation drifts outside a tolerance threshold.
+
+    Parameters
+    ----------
+    tolerance : float
+        Non-negative maximum allowed absolute drift in cash weight.
+    """
+
+    def __init__(self, tolerance: float):
+        """Initialize cash drift trigger."""
+        super().__init__()
+        self.tolerance = validate_non_negative(
+            tolerance, "RunIfCashOutOfBounds `tolerance`"
+        )
+
+    def __call__(self, target: Any) -> bool:
+        """Evaluate whether cash weight is outside tolerance.
+
+        Parameters
+        ----------
+        target : Any
+            Target object expected to expose ``temp``, ``capital``, and ``value``.
+
+        Returns
+        -------
+        bool
+            ``True`` when cash drift exceeds tolerance, else ``False``.
+            Returns ``False`` when required state is missing.
+        """
+        temp = getattr(target, "temp", None)
+        if not isinstance(temp, dict):
+            return False
+
+        if "cash" not in temp:
+            return False
+
+        total_value = getattr(target, "value", 0.0)
+        if total_value == 0:
+            return False
+
+        current_cash_weight = getattr(target, "capital", 0.0) / total_value
+        desired_cash_weight = temp["cash"]
+        drift = abs(current_cash_weight - desired_cash_weight)
+        return drift > self.tolerance
