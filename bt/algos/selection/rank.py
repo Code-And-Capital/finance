@@ -1,82 +1,99 @@
+from typing import Any
+
+import pandas as pd
+import numpy as np
+
 from bt.core.algo_base import Algo
+from bt.utils.selection_utils import resolve_selection_context
+from utils.math_utils import validate_integer
 
 
 class SelectN(Algo):
-    """
-    Selects the top or bottom N tickers based on the metric stored in temp['stat'].
+    """Select top/bottom names by rank metric in ``target.temp[stat_key]``.
 
-    This is typically used after another Algo computes a ranking metric. You can
-    choose whether to sort descending (e.g., pick highest momentum) or ascending.
+    Parameters
+    ----------
+    n : int | float
+        Selection size. ``0 < n < 1`` means percentage, ``n >= 1`` means
+        absolute count.
+    sort_descending : bool, optional
+        If ``True`` (default), highest metric values rank first.
+    stat_key : str, optional
+        Key in ``target.temp`` containing the ranking ``pandas.Series``.
+        Defaults to ``"stat"``.
 
-    Supports selecting:
-        * absolute N (e.g. 10) or
-        * percentage N (e.g. 0.2 → select top 20%)
-
-    Args:
-        n (int | float):
-            Number of items to select.
-            - If n >= 1 → selects that many items.
-            - If 0 < n < 1 → treated as a percentage of available items.
-        sort_descending (bool):
-            Sort high-to-low if True, low-to-high if False.
-        all_or_none (bool):
-            If True, only selects items if full N items are available.
-        filter_selected (bool):
-            If True, intersect with existing temp['selected'] before ranking.
-
-    Sets:
-        temp['selected']
-
-    Requires:
-        temp['stat'] : pandas.Series
+    Notes
+    -----
+    - For percentage selection, count is computed as
+      ``max(floor(n * len(ranked)), 1)``.
+    - Returns ``False`` (without mutating selection) when ``target.temp`` is
+      missing/not dict-like, when ``temp[stat_key]`` is missing/non-Series, or
+      when ``temp['selected']`` is missing.
+    - Ranking is always limited to names already present in ``temp['selected']``.
     """
 
     def __init__(
         self,
         n: float | int,
         sort_descending: bool = True,
-        all_or_none: bool = False,
-        filter_selected: bool = True,
-    ):
-        super().__init__()
+        stat_key: str = "stat",
+    ) -> None:
+        """Initialize rank selector.
 
+        Raises
+        ------
+        TypeError
+            If ``n`` is not numeric, if absolute ``n`` is non-integer, or when
+            ``sort_descending`` is not ``bool``.
+        ValueError
+            If ``n <= 0``.
+        """
+        super().__init__()
+        if not isinstance(sort_descending, bool):
+            raise TypeError("SelectN `sort_descending` must be a bool.")
+        if not isinstance(stat_key, str) or not stat_key:
+            raise TypeError("SelectN `stat_key` must be a non-empty string.")
+
+        if isinstance(n, bool) or not isinstance(n, (int, float)):
+            raise TypeError("SelectN `n` must be numeric.")
         if n <= 0:
-            raise ValueError("n must be positive (absolute count or percentage).")
+            raise ValueError("SelectN `n` must be > 0.")
+        if n >= 1:
+            # Absolute-count mode is strict integer to avoid silent truncation.
+            n = int(validate_integer(n, "SelectN `n`"))
 
         self.n = n
         self.ascending = not sort_descending
-        self.all_or_none = all_or_none
-        self.filter_selected = filter_selected
+        self.stat_key = stat_key
 
-    def __call__(self, target):
-        stat = target.temp["stat"].dropna()
+    def __call__(self, target: Any) -> bool:
+        """Rank and select names, storing output in ``target.temp['selected']``."""
+        context = resolve_selection_context(target)
+        if context is None:
+            return False
+        temp, _, _ = context
 
-        # Optionally filter to previously-selected items
-        if self.filter_selected and "selected" in target.temp:
-            previously_selected = target.temp["selected"]
-            stat = stat.loc[stat.index.intersection(previously_selected)]
+        stat = temp.get(self.stat_key)
+        if not isinstance(stat, pd.Series):
+            return False
 
-        # Nothing to rank
-        if stat.empty:
-            target.temp["selected"] = []
+        if "selected" not in temp:
+            return False
+
+        ranked = stat.dropna()
+        ranked = ranked[np.isfinite(ranked)]
+        ranked = ranked.loc[ranked.index.intersection(temp["selected"])]
+
+        if ranked.empty:
+            temp["selected"] = []
             return True
 
-        # Sort metric
-        stat = stat.sort_values(ascending=self.ascending)
-
-        # Compute number to keep (percentage or absolute)
+        ranked = ranked.sort_values(ascending=self.ascending)
         if 0 < self.n < 1:
-            keep_n = int(round(self.n * len(stat)))
-            keep_n = max(keep_n, 1)  # ensure at least one selected
+            keep_n = max(int(self.n * len(ranked)), 1)
         else:
             keep_n = int(self.n)
 
-        # Perform selection
-        selected = list(stat.iloc[:keep_n].index)
-
-        # all_or_none rule
-        if self.all_or_none and len(selected) < keep_n:
-            selected = []
-
-        target.temp["selected"] = selected
+        top_names = list(ranked.iloc[:keep_n].index)
+        temp["selected"] = top_names
         return True

@@ -11,21 +11,17 @@ to more advanced filters (SelectHasData), random
 selection for benchmarking, and logical/boolean selection utilities.
 """
 
-from .all import SelectAll
+from .base_selection import SelectAll, SelectHasData, SelectActive
 from .these import SelectThese, SelectWhere
-from .filter import SelectHasData, SelectActive
 from .rank import SelectN
 from .random import SelectRandomly
-from .regex import SelectRegex
 
 __all__ = [
     "SelectAll",
     "SelectThese",
     "SelectHasData",
     "SelectN",
-    "StatTotalReturn",
     "SelectRandomly",
     "SelectWhere",
-    "SelectRegex",
     "SelectActive",
 ]

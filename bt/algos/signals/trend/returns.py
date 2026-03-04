@@ -25,8 +25,6 @@ class MomentumSignal(AlgoStack):
             Optional lag shift applied to the lookback period.
         sort_descending (bool):
             If True, highest momentum is selected first.
-        all_or_none (bool):
-            If True, select only if N items are available. Otherwise return [].
 
     Sets:
         temp['selected']
@@ -41,14 +39,11 @@ class MomentumSignal(AlgoStack):
         lookback: pd.DateOffset = pd.DateOffset(months=3),
         lag: pd.DateOffset = pd.DateOffset(days=0),
         sort_descending: bool = True,
-        all_or_none: bool = False,
     ):
         super().__init__(
             StatTotalReturn(lookback=lookback, lag=lag),
             SelectN(
                 n=n,
                 sort_descending=sort_descending,
-                all_or_none=all_or_none,
-                filter_selected=True,
             ),
         )

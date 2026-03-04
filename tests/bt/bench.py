@@ -26,7 +26,7 @@ def benchmark_1():
         "s",
         [
             RunMonthly(),
-            SelectRandomly(len(data.columns) / 2),
+            SelectRandomly(int(len(data.columns) / 2)),
             WeighRandomly(),
             Rebalance(),
         ],

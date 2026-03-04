@@ -1,105 +1,75 @@
 import random
-from typing import List, Optional
-from bt.core.algo_base import AlgoStack
+from typing import Any
 
-import random
-from typing import List, Optional
+from .base_selection import SelectAll
+from bt.utils.selection_utils import (
+    resolve_candidate_pool_with_fallback,
+    resolve_selection_context,
+)
+from utils.math_utils import validate_integer, validate_non_negative
 
 
-class SelectRandomly(AlgoStack):
-    """
-    Randomly selects a subset of currently-selected assets.
+class SelectRandomly(SelectAll):
+    """Randomly select up to ``n`` securities from current candidate set.
 
-    This Algo picks up to ``n`` assets at random from ``temp['selected']``.
-    If that list does not exist, the entire universe column list is used.
+    Parameters
+    ----------
+    n : int
+        Maximum number of tickers to select.
+    include_no_data : bool, optional
+        If ``False`` (default), exclude securities with missing prices at
+        ``target.now``.
+    include_negative : bool, optional
+        If ``False`` (default), exclude non-positive prices. Ignored when
+        ``include_no_data`` is ``True``.
 
-    Typical use-case:
-        Used after a selection Algo (e.g., SelectAll, SelectMomentum) to
-        construct a purely random benchmark strategy.
-
-    Args:
-        n (Optional[int]):
-            Maximum number of assets to randomly select. If None, all valid
-            assets are retained.
-        include_no_data (bool):
-            If False, assets with NaN values at ``target.now`` are removed.
-        include_negative (bool):
-            If False, assets with zero or negative prices at ``target.now`` are removed.
-
-    Sets:
-        temp["selected"]: A list of randomly-selected tickers.
-
-    Requires:
-        temp["selected"] (optional — defaults to universe)
+    Notes
+    -----
+    - Sampling is without replacement.
+    - If ``n`` exceeds the number of eligible names, all eligible names are
+      selected.
+    - Result order is randomized and not stable across calls.
+    - Returns ``False`` when ``target.temp`` is missing/not dict-like, universe
+      is missing/invalid, or ``target.now`` is missing/invalid/not in index.
     """
 
     def __init__(
         self,
-        n: Optional[int] = None,
+        n: int,
         include_no_data: bool = False,
         include_negative: bool = False,
     ) -> None:
+        """Initialize random selector.
+
+        Raises
+        ------
+        TypeError
+            If ``n`` is not an integer.
+        ValueError
+            If ``n`` is negative.
         """
-        Initialize a SelectRandomly algorithm.
+        super().__init__(
+            include_no_data=include_no_data, include_negative=include_negative
+        )
+        n_val = int(validate_integer(n, "SelectRandomly `n`"))
+        self.n = int(validate_non_negative(n_val, "SelectRandomly `n`"))
 
-        Parameters:
-            n (Optional[int]):
-                Maximum number of items to randomly select.
-                If None, selection is unbounded.
-            include_no_data (bool):
-                If False, drop tickers with missing data at ``target.now``.
-            include_negative (bool):
-                If False, drop tickers with negative or zero prices.
+    def __call__(self, target: Any) -> bool:
+        """Compute random selection and store it in ``target.temp['selected']``."""
+        context = resolve_selection_context(target)
+        if context is None:
+            return False
+        temp, universe, _ = context
 
-        Returns:
-            None
-        """
-        super().__init__()
-        self.n = n
-        self.include_no_data = include_no_data
-        self.include_negative = include_negative
+        candidate_pool = resolve_candidate_pool_with_fallback(
+            temp,
+            lambda: super(SelectRandomly, self).__call__(target),
+            allowed_candidates=list(universe.columns),
+        )
+        if candidate_pool is None:
+            return False
 
-    def __call__(self, target) -> bool:
-        """
-        Execute the random selection algorithm.
-
-        This method:
-        1. Loads the current selection list (or defaults to the full universe).
-        2. Filters out tickers with missing or invalid prices, unless disabled.
-        3. Randomly samples up to `n` tickers.
-        4. Stores the final selection in ``temp['selected']``.
-
-        Parameters:
-            target:
-                The strategy/target object containing:
-                    - `temp`: dict-like storage
-                    - `universe`: price DataFrame
-                    - `now`: current timestamp
-
-        Returns:
-            bool:
-                Always returns True to signal that the Algo executed successfully.
-        """
-        # Load existing selection or default to all tickers
-        if "selected" in target.temp:
-            sel: List[str] = list(target.temp["selected"])
-        else:
-            sel = list(target.universe.columns)
-
-        # Filter NaN / invalid prices
-        if not self.include_no_data:
-            prices = target.universe.loc[target.now, sel].dropna()
-
-            if self.include_negative:
-                sel = list(prices.index)
-            else:
-                sel = list(prices[prices > 0].index)
-
-        # Random sample
-        if self.n is not None:
-            n = min(self.n, len(sel))
-            sel = random.sample(sel, n)
-
-        # Save selection
-        target.temp["selected"] = sel
+        temp["selected"] = random.sample(
+            candidate_pool, min(self.n, len(candidate_pool))
+        )
         return True
