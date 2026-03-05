@@ -2,8 +2,8 @@ from typing import Iterable, Union
 
 import pandas as pd
 
-from bt.core import SecurityBase
-from bt.core.algo_base import Algo
+from bt.core.security import SecurityBase
+from bt.algos.core import Algo
 from utils.date_utils import coerce_timestamp
 from utils.dataframe_utils import normalize_date_series, one_column_frame_to_series
 

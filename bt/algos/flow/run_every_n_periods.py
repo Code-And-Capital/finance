@@ -2,8 +2,8 @@ from typing import Any
 
 import pandas as pd
 
-from bt.core.algo_base import Algo
-from utils.date_utils import coerce_timestamp_or_none, month_index
+from bt.algos.core import Algo
+from utils.date_utils import month_index
 from utils.math_utils import validate_integer, validate_non_negative
 
 
@@ -77,7 +77,7 @@ class RunEveryNPeriods(Algo):
         bool
             ``True`` when current period is a trigger boundary, else ``False``.
         """
-        now = coerce_timestamp_or_none(getattr(target, "now", None))
+        now = self._resolve_now(target)
         if now is None:
             return False
 
@@ -131,7 +131,7 @@ class RunEveryNMonths(Algo):
 
     def __call__(self, target: Any) -> bool:
         """Evaluate whether the month-based cadence condition is satisfied."""
-        now = coerce_timestamp_or_none(getattr(target, "now", None))
+        now = self._resolve_now(target)
         if now is None:
             return False
 

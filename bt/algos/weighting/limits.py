@@ -1,4 +1,4 @@
-from bt.core.algo_base import Algo
+from bt.algos.core import Algo
 import numpy as np
 import pandas as pd
 from typing import Union
@@ -171,14 +171,25 @@ class LimitWeights(Algo):
         bool
             Always True after applying limits.
         """
-        tw = target.temp.get("weights", {})
-        if not tw:
+        tw = target.temp.get("weights")
+        if tw is None:
+            return True
+
+        if isinstance(tw, pd.Series):
+            tw_map = tw.dropna().to_dict()
+        elif isinstance(tw, dict):
+            tw_map = tw
+        else:
+            return False
+
+        if len(tw_map) == 0:
+            target.temp["weights"] = {}
             return True
 
         # If limit is smaller than equal weight, zero out all weights
-        if self.limit < 1.0 / len(tw):
+        if self.limit < 1.0 / len(tw_map):
             target.temp["weights"] = {}
         else:
-            target.temp["weights"] = self.limit_weights(tw, self.limit)
+            target.temp["weights"] = self.limit_weights(tw_map, self.limit).to_dict()
 
         return True

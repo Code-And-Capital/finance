@@ -3,25 +3,17 @@ from typing import Any
 
 import pandas as pd
 
-from bt.utils.selection_utils import (
-    filter_tickers_by_current_price,
-    intersect_candidates_with_pool,
-)
-from utils.list_utils import normalize_string_list
+from utils.list_utils import keep_items_in_pool, normalize_string_list
 from .base_selection import SelectAll
 
 
 class SelectThese(SelectAll):
-    """Select a fixed ticker list, optionally filtered by current prices.
+    """Select a fixed ticker list with strict current-price eligibility.
 
     Parameters
     ----------
     tickers : Iterable[str] | str
         Tickers to keep. A scalar string is treated as a single ticker.
-    include_no_data : bool, optional
-        If ``True``, keep configured tickers regardless of missing prices.
-    include_negative : bool, optional
-        If ``False`` (default), exclude non-positive prices.
 
     Notes
     -----
@@ -35,13 +27,9 @@ class SelectThese(SelectAll):
     def __init__(
         self,
         tickers: Iterable[str] | str,
-        include_no_data: bool = False,
-        include_negative: bool = False,
     ) -> None:
         """Initialize fixed-list selector."""
-        super().__init__(
-            include_no_data=include_no_data, include_negative=include_negative
-        )
+        super().__init__()
         normalized = normalize_string_list(tickers, field_name="SelectThese `tickers`")
         if normalized is None:
             raise TypeError("SelectThese `tickers` must be a string or iterable.")
@@ -61,13 +49,13 @@ class SelectThese(SelectAll):
             return False
         temp, universe, now, candidate_pool = resolved
 
-        available = intersect_candidates_with_pool(self.tickers, candidate_pool)
-        temp["selected"] = filter_tickers_by_current_price(
+        available = keep_items_in_pool(self.tickers, candidate_pool)
+        temp["selected"] = self._filter_tickers_by_current_price(
             universe=universe,
             now=now,
             tickers=available,
-            include_no_data=self.include_no_data,
-            include_negative=self.include_negative,
+            include_no_data=False,
+            include_negative=False,
         )
         return True
 
@@ -79,10 +67,6 @@ class SelectWhere(SelectAll):
     ----------
     signal : str | pandas.DataFrame
         Signal source. If string, retrieved via ``target.get_data(signal)``.
-    include_no_data : bool, optional
-        If ``False`` (default), exclude names with missing prices at ``target.now``.
-    include_negative : bool, optional
-        If ``False`` (default), exclude non-positive prices.
 
     Notes
     -----
@@ -96,13 +80,9 @@ class SelectWhere(SelectAll):
     def __init__(
         self,
         signal: str | pd.DataFrame,
-        include_no_data: bool = False,
-        include_negative: bool = False,
     ) -> None:
         """Initialize signal-based selector."""
-        super().__init__(
-            include_no_data=include_no_data, include_negative=include_negative
-        )
+        super().__init__()
         if isinstance(signal, pd.DataFrame):
             self.signal = signal
             self.signal_name: str | None = None
@@ -132,11 +112,9 @@ class SelectWhere(SelectAll):
         )
         if resolved_signal is None:
             return False
-        signal_df, signal_row = resolved_signal
+        _, signal_row = resolved_signal
 
-        candidate_pool = intersect_candidates_with_pool(
-            list(signal_row.index), candidate_pool
-        )
+        candidate_pool = keep_items_in_pool(list(signal_row.index), candidate_pool)
         if not candidate_pool:
             temp["selected"] = []
             return True
@@ -145,11 +123,11 @@ class SelectWhere(SelectAll):
         mask = self._signal_row_to_bool_mask(row)
         selected_names = list(mask[mask].index)
 
-        temp["selected"] = filter_tickers_by_current_price(
+        temp["selected"] = self._filter_tickers_by_current_price(
             universe=universe,
             now=now,
             tickers=selected_names,
-            include_no_data=self.include_no_data,
-            include_negative=self.include_negative,
+            include_no_data=False,
+            include_negative=False,
         )
         return True

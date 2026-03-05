@@ -1,7 +1,7 @@
 import math
 from typing import Any
 
-from bt.core.algo_base import Algo
+from bt.algos.core import Algo
 
 
 class Margin(Algo):

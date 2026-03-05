@@ -1,4 +1,5 @@
-from numbers import Integral
+from decimal import Decimal
+from numbers import Integral, Real
 
 
 def is_zero(x, tol: float = 1e-12) -> bool:
@@ -77,3 +78,29 @@ def validate_integer(value, label: str) -> int:
     if not isinstance(value, Integral):
         raise TypeError(f"{label} must be an integer.")
     return int(value)
+
+
+def validate_real(value, label: str) -> float:
+    """
+    Return ``value`` as ``float`` after enforcing real-number semantics.
+
+    Parameters
+    ----------
+    value : Any
+        Value to validate as a real number.
+    label : str
+        Field name used in the exception message.
+
+    Returns
+    -------
+    float
+        The validated real value.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is not a real-number type.
+    """
+    if not isinstance(value, (Real, Decimal)):
+        raise TypeError(f"{label} must be numeric.")
+    return float(value)

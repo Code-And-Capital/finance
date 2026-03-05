@@ -197,6 +197,9 @@ class PricingData(YahooData):
             f"write_to_azure={write_to_azure}"
         )
         start_date_mapping: dict[str, pd.Timestamp] | None = None
+        expected_tickers: list[str] = [
+            str(ticker).strip().upper() for ticker in self.tickers
+        ]
         if use_start_date_mapping:
             yahoo_client = self._resolve_client()
             max_dates = self._fetch_max_dates(configs_path=configs_path)
@@ -205,6 +208,9 @@ class PricingData(YahooData):
             eligible_mapping, skipped_tickers = self._filter_future_start_dates(
                 start_date_mapping
             )
+            expected_tickers = [
+                str(ticker).strip().upper() for ticker in eligible_mapping.keys()
+            ]
             if skipped_tickers:
                 log(
                     "Skipping tickers with start_date after today: "
@@ -237,6 +243,21 @@ class PricingData(YahooData):
                 client_method="get_prices",
                 method_kwargs={},
                 date_columns=["DATE"],
+            )
+        returned_tickers = set(
+            dataframe["TICKER"].dropna().astype(str).str.upper()
+            if "TICKER" in dataframe.columns
+            else []
+        )
+        missing_tickers = [
+            ticker
+            for ticker in expected_tickers
+            if ticker and ticker not in returned_tickers
+        ]
+        for ticker in missing_tickers:
+            log(
+                f"No pricing data returned for ticker: {ticker}",
+                type="warning",
             )
         log(f"Pulled pricing rows: {len(dataframe)}")
         if not dataframe.empty:

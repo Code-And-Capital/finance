@@ -1,214 +1,161 @@
-from bt.core.algo_base import Algo
+from typing import Any
+
 import pandas as pd
+
+from bt.algos.core import Algo
+from utils.list_utils import keep_items_in_pool
 
 
 class TrendSignalBase(Algo):
+    """Base class for cross-sectional trend signals.
+
+    This class handles common mechanics:
+    - resolve current evaluation timestamp with optional lag
+    - resolve candidate pool from ``temp["selected"]`` or full universe
+    - fetch latest available price snapshot at/behind evaluation time
+    - write selected tickers back to ``temp["selected"]`` as a list
+
+    Subclasses implement ``_compute_signal`` and return a boolean ``Series``
+    indexed by ticker.
     """
-    Base class for cross-sectional trend-following signals.
 
-    This abstract class handles common operations for trend signals, including:
-    - Determining the evaluation timestamp with a lag to prevent look-ahead bias
-    - Selecting the active universe of assets
-    - Retrieving the latest available prices
-    - Storing the resulting cross-sectional boolean signal in `target.temp["selected"]`
-
-    Subclasses must implement the `_compute_signal` method, which defines the
-    logic for selecting assets based on their prices and/or benchmark indicators.
-    """
-
-    def __init__(self, lag=pd.DateOffset(days=0)):
-        """
-        Initialize the trend signal base.
-
-        Parameters
-        ----------
-        lag : pandas.DateOffset, optional
-            Time offset applied to `target.now` to avoid look-ahead bias. All
-            calculations are performed using data available up to `target.now - lag`.
-        """
+    def __init__(self, lag: pd.DateOffset = pd.DateOffset(days=0)) -> None:
+        """Initialize the trend signal base."""
         super().__init__()
+        if not isinstance(lag, pd.DateOffset):
+            raise TypeError("TrendSignalBase `lag` must be a pandas.DateOffset.")
         self.lag = lag
 
-    def __call__(self, target):
-        """
-        Execute the trend signal computation for the current target state.
+    def __call__(self, target: Any) -> bool:
+        """Compute and store selected tickers in ``target.temp['selected']``."""
+        context = self._resolve_temp_universe_now(target)
+        if context is None:
+            return False
+        temp, universe, now = context
+        eval_now = now - self.lag
 
-        This method handles the evaluation timestamp, universe selection,
-        price retrieval, and storage of the resulting signal. The specific
-        selection logic is delegated to the subclass via `_compute_signal`.
-
-        Parameters
-        ----------
-        target : object
-            Execution context provided by the backtesting or live-trading
-            framework. Expected to provide:
-            - `now` : pandas.Timestamp, current evaluation timestamp
-            - `universe` : pandas.DataFrame, index = datetime, columns = assets
-            - `temp` : dict-like storage for intermediate state
-
-        Returns
-        -------
-        bool
-            True if the signal was successfully computed and stored; False if
-            insufficient data or assets are available.
-        """
-        t0 = target.now - self.lag
-
-        # Determine active universe
-        if "selected" in target.temp:
-            assets = list(target.temp["selected"])
+        if "selected" in temp:
+            raw_selected = temp.get("selected")
+            if not isinstance(raw_selected, list):
+                return False
+            candidate_pool = keep_items_in_pool(list(universe.columns), raw_selected)
         else:
-            assets = list(target.universe.columns)
+            candidate_pool = list(universe.columns)
 
-        if not assets:
+        if not candidate_pool:
+            temp["selected"] = []
+            return True
+
+        try:
+            price_history = universe.loc[:eval_now, candidate_pool]
+        except (TypeError, KeyError, ValueError):
+            return False
+        if price_history.empty:
             return False
 
-        prices = target.universe[assets]
+        latest_prices = price_history.iloc[-1].dropna()
+        if latest_prices.empty:
+            temp["selected"] = []
+            return True
 
-        # Check that price history exists
-        if prices.index[0] > t0:
+        signal = self._compute_signal(temp, latest_prices)
+        if not isinstance(signal, pd.Series):
             return False
 
-        # Latest available prices
-        latest_prices = prices.loc[:t0].iloc[-1]
+        # Normalize to boolean mask over latest-price names.
+        signal = signal.reindex(latest_prices.index, fill_value=False)
+        try:
+            mask = signal.astype(bool)
+        except (TypeError, ValueError):
+            return False
 
-        # Delegate to subclass for signal computation
-        trend = self._compute_signal(target, latest_prices, assets)
-
-        # Store cross-sectional selection as dictionary
-        target.temp["selected"] = trend.to_dict()
-
+        temp["selected"] = list(mask[mask].index)
         return True
 
-    def _compute_signal(self, target, latest_prices, assets):
-        """
-        Subclasses must override this method to implement specific selection logic.
-
-        Parameters
-        ----------
-        target : object
-            Backtesting context with universe, temp storage, etc.
-        latest_prices : pd.Series
-            Latest available prices for the selected assets.
-        assets : list
-            Names of the assets to evaluate.
-
-        Returns
-        -------
-        pd.Series
-            Boolean Series indicating which assets are selected (True = selected).
-        """
-        raise NotImplementedError("Subclasses must implement this method")
+    def _compute_signal(
+        self, temp: dict[str, Any], latest_prices: pd.Series
+    ) -> pd.Series | None:
+        """Return boolean signal series indexed by asset names."""
+        raise NotImplementedError("Subclasses must implement this method.")
 
 
 class PriceCrossOverSignal(TrendSignalBase):
-    """
-    Cross-sectional price-over-benchmark signal.
+    """Select names where price is above a reference series.
 
-    Generates a boolean signal by comparing the latest price of each asset
-    to a reference benchmark (e.g., SMA, EWMA). Assets with prices above
-    the benchmark are considered trending positively and selected.
-
-    The resulting signal is stored in `target.temp["selected"]` for downstream use.
-    """
-
-    def __init__(self, ma_name="moving_average", lag=pd.DateOffset(days=0)):
-        """
-        Initialize the price crossover signal.
-
-        Parameters
-        ----------
-        ma_name : str, optional
-            Key in `target.temp` containing the reference benchmark series.
-        lag : pandas.DateOffset, optional
-            Offset applied to evaluation time to prevent look-ahead bias.
-        """
-        super().__init__(lag=lag)
-        self.ma_name = ma_name
-
-    def _compute_signal(self, target, latest_prices, assets):
-        """
-        Compute the price-over-benchmark signal.
-
-        Parameters
-        ----------
-        target : object
-            Backtesting context containing benchmark data in `target.temp`.
-        latest_prices : pd.Series
-            Latest available prices of the selected assets.
-        assets : list
-            Names of the assets to evaluate.
-
-        Returns
-        -------
-        pd.Series
-            Boolean Series indicating which assets are above the benchmark.
-        """
-        if self.ma_name not in target.temp:
-            raise ValueError(
-                f"Reference benchmark '{self.ma_name}' not found in target.temp"
-            )
-
-        ref = target.temp[self.ma_name].loc[assets]
-        trend = latest_prices > ref
-        return trend[trend]
-
-
-class DualMACrossoverSignal(TrendSignalBase):
-    """
-    Dual moving average crossover signal.
-
-    Generates a boolean signal by comparing a short-term moving average
-    to a long-term moving average. Assets where the short-term average
-    exceeds the long-term average are considered trending positively.
-
-    The resulting signal is stored in `target.temp["selected"]` for downstream use.
+    Parameters
+    ----------
+    ma_name : str, optional
+        Temp key containing reference levels as ``pandas.Series``.
+    lag : pandas.DateOffset, optional
+        Time lag applied to ``target.now`` before evaluation.
     """
 
     def __init__(
-        self, short_name="ma_short", long_name="ma_long", lag=pd.DateOffset(days=0)
-    ):
-        """
-        Initialize the dual moving average crossover signal.
-
-        Parameters
-        ----------
-        short_name : str, optional
-            Key in `target.temp` containing the short-term moving average.
-        long_name : str, optional
-            Key in `target.temp` containing the long-term moving average.
-        lag : pandas.DateOffset, optional
-            Offset applied to evaluation time to prevent look-ahead bias.
-        """
+        self,
+        ma_name: str = "moving_average",
+        lag: pd.DateOffset = pd.DateOffset(days=0),
+    ) -> None:
+        """Initialize price-vs-reference trend signal."""
         super().__init__(lag=lag)
+        if not isinstance(ma_name, str) or not ma_name:
+            raise TypeError(
+                "PriceCrossOverSignal `ma_name` must be a non-empty string."
+            )
+        self.ma_name = ma_name
+
+    def _compute_signal(
+        self, temp: dict[str, Any], latest_prices: pd.Series
+    ) -> pd.Series | None:
+        """Return ``latest_prices > reference`` over the active asset set."""
+        ref = temp.get(self.ma_name)
+        if not isinstance(ref, pd.Series):
+            return None
+
+        ref_on_assets = ref.reindex(latest_prices.index)
+        return latest_prices > ref_on_assets
+
+
+class DualMACrossoverSignal(TrendSignalBase):
+    """Select names where short moving average is above long moving average.
+
+    Parameters
+    ----------
+    short_name : str, optional
+        Temp key containing short-horizon moving-average ``Series``.
+    long_name : str, optional
+        Temp key containing long-horizon moving-average ``Series``.
+    lag : pandas.DateOffset, optional
+        Time lag applied to ``target.now`` before evaluation.
+    """
+
+    def __init__(
+        self,
+        short_name: str = "ma_short",
+        long_name: str = "ma_long",
+        lag: pd.DateOffset = pd.DateOffset(days=0),
+    ) -> None:
+        """Initialize dual moving-average crossover signal."""
+        super().__init__(lag=lag)
+        if not isinstance(short_name, str) or not short_name:
+            raise TypeError(
+                "DualMACrossoverSignal `short_name` must be a non-empty string."
+            )
+        if not isinstance(long_name, str) or not long_name:
+            raise TypeError(
+                "DualMACrossoverSignal `long_name` must be a non-empty string."
+            )
         self.short_name = short_name
         self.long_name = long_name
 
-    def _compute_signal(self, target, latest_prices, assets):
-        """
-        Compute the dual moving average crossover signal.
+    def _compute_signal(
+        self, temp: dict[str, Any], latest_prices: pd.Series
+    ) -> pd.Series | None:
+        """Return ``short_ma > long_ma`` over the active asset set."""
+        short_ma = temp.get(self.short_name)
+        long_ma = temp.get(self.long_name)
+        if not isinstance(short_ma, pd.Series) or not isinstance(long_ma, pd.Series):
+            return None
 
-        Parameters
-        ----------
-        target : object
-            Backtesting context containing the moving averages in `target.temp`.
-        latest_prices : pd.Series
-            Latest available prices of the selected assets (not used in this signal).
-        assets : list
-            Names of the assets to evaluate.
-
-        Returns
-        -------
-        pd.Series
-            Boolean Series indicating which assets have a bullish crossover
-            (short-term MA > long-term MA).
-        """
-        for name in [self.short_name, self.long_name]:
-            if name not in target.temp:
-                raise ValueError(f"Benchmark '{name}' not found in target.temp")
-
-        short_ma = target.temp[self.short_name].loc[assets]
-        long_ma = target.temp[self.long_name].loc[assets]
-
-        trend = short_ma > long_ma
-        return trend[trend]
+        short_on_assets = short_ma.reindex(latest_prices.index)
+        long_on_assets = long_ma.reindex(latest_prices.index)
+        return short_on_assets > long_on_assets

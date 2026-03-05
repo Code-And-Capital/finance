@@ -1,4 +1,4 @@
-from bt.core.algo_base import Algo
+from bt.algos.core import Algo
 import numpy as np
 
 

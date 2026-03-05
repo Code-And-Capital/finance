@@ -35,3 +35,15 @@ def normalize_string_list(
         cleaned.append(stripped)
 
     return cleaned
+
+
+def keep_items_in_pool(items: list[Any], pool: list[Any]) -> list[Any]:
+    """Return items present in pool, preserving item order."""
+    pool_set = set(pool)
+    return [item for item in items if item in pool_set]
+
+
+def drop_items_in_pool(items: list[Any], excluded_items: Iterable[Any]) -> list[Any]:
+    """Return items not present in excluded_items, preserving item order."""
+    excluded_set = set(excluded_items)
+    return [item for item in items if item not in excluded_set]

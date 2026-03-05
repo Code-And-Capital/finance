@@ -2,8 +2,8 @@ from typing import Any
 
 import pandas as pd
 
-from bt.core.algo_base import Algo
-from utils.date_utils import coerce_timestamp, coerce_timestamp_or_none, month_index
+from bt.algos.core import Algo
+from utils.date_utils import coerce_timestamp, month_index
 from utils.math_utils import validate_integer, validate_non_negative
 
 
@@ -98,7 +98,7 @@ class RunAfterDate(Algo):
         if self._is_active:
             return True
 
-        now = coerce_timestamp_or_none(getattr(target, "now", None))
+        now = self._resolve_now(target)
         if now is None:
             return False
 
@@ -149,7 +149,7 @@ class RunAfterMonths(Algo):
         if self._is_active:
             return True
 
-        now = coerce_timestamp_or_none(getattr(target, "now", None))
+        now = self._resolve_now(target)
         if now is None:
             return False
 

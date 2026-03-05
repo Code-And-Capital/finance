@@ -1,13 +1,7 @@
 from typing import Any
 
-from bt.core.algo_base import Algo
-from bt.utils.selection_utils import (
-    exclude_candidates_from_pool,
-    filter_tickers_by_current_price,
-    intersect_candidates_with_pool,
-    resolve_candidate_pool_with_fallback,
-    resolve_selection_context,
-)
+from bt.algos.core import Algo
+from utils.list_utils import drop_items_in_pool, keep_items_in_pool
 from utils.list_utils import normalize_string_list
 
 
@@ -42,21 +36,19 @@ class RemoveSecurities(Algo):
 
     def __call__(self, target: Any) -> bool:
         """Remove configured names from ``target.temp['selected']``."""
-        context = resolve_selection_context(target)
+        context = self._resolve_selection_context(target)
         if context is None:
             return False
         temp, _, _ = context
 
-        candidate_pool = resolve_candidate_pool_with_fallback(
+        candidate_pool = self._resolve_candidate_pool_with_fallback(
             temp,
             lambda: temp.__setitem__("selected", []) or True,
         )
         if candidate_pool is None:
             return False
 
-        temp["selected"] = exclude_candidates_from_pool(
-            candidate_pool, self.removed_securities
-        )
+        temp["selected"] = drop_items_in_pool(candidate_pool, self.removed_securities)
         return True
 
 
@@ -97,7 +89,7 @@ class AddSecurity(Algo):
 
     def __call__(self, target: Any) -> bool:
         """Add configured names and filter to currently tradable securities."""
-        context = resolve_selection_context(target)
+        context = self._resolve_selection_context(target)
         if context is None:
             return False
         temp, universe, now = context
@@ -106,7 +98,7 @@ class AddSecurity(Algo):
         if not isinstance(perm, dict):
             return False
 
-        candidate_pool = resolve_candidate_pool_with_fallback(
+        candidate_pool = self._resolve_candidate_pool_with_fallback(
             temp,
             lambda: temp.__setitem__("selected", []) or True,
         )
@@ -125,10 +117,8 @@ class AddSecurity(Algo):
             return False
 
         universe_columns = list(universe.columns)
-        universe_candidates = intersect_candidates_with_pool(
-            universe_columns, list(merged_set)
-        )
-        temp["selected"] = filter_tickers_by_current_price(
+        universe_candidates = keep_items_in_pool(universe_columns, list(merged_set))
+        temp["selected"] = self._filter_tickers_by_current_price(
             universe=universe,
             now=now,
             tickers=universe_candidates,

@@ -4,7 +4,8 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-from bt.core import Algo, Strategy, SecurityBase
+from bt.algos.core import Algo
+from bt.core import Strategy, Security, SecurityBase
 from bt.engine import Backtest
 from bt.algos.flow import (
     Require,
@@ -759,3 +760,68 @@ def test_close_positions_after_dates_updates_candidate_cache_on_child_changes():
     assert algo(target)
     # c2 is not in close dates, so cache refresh should still avoid closing c2
     assert "c2" not in target.perm["closed"]
+
+
+def test_close_positions_after_date():
+    c1 = Security("c1")
+    c2 = Security("c2")
+    c3 = Security("c3")
+    s = Strategy("s", children=[c1, c2, c3])
+    dts = pd.date_range("2010-01-01", periods=3)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=100)
+    c1 = s["c1"]
+    c2 = s["c2"]
+    c3 = s["c3"]
+
+    cutoffs = pd.DataFrame({"date": [dts[1], dts[2]]}, index=["c1", "c2"])
+    algo = ClosePositionsAfterDates("cutoffs")
+
+    s.setup(data, cutoffs=cutoffs)
+
+    s.update(dts[0])
+    s.transact(100, "c1")
+    s.transact(100, "c2")
+    s.transact(100, "c3")
+    algo(s)
+    assert c1.position == 100
+    assert c2.position == 100
+    assert c3.position == 100
+
+    s.update(dts[2])
+    algo(s)
+    assert c1.position == 0
+    assert c2.position == 0
+    assert c3.position == 100
+    assert s.perm["closed"] == {"c1", "c2"}
+
+
+def test_close_positions_after_date_accepts_series_source():
+    c1 = Security("c1")
+    s = Strategy("s", children=[c1])
+    dts = pd.date_range("2010-01-01", periods=3)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100)
+    c1 = s["c1"]
+
+    cutoffs = pd.Series([dts[1]], index=["c1"], name="date")
+    algo = ClosePositionsAfterDates(cutoffs)
+
+    s.setup(data)
+    s.update(dts[0])
+    s.transact(100, "c1")
+    s.update(dts[2])
+    assert algo(s)
+    assert c1.position == 0
+
+
+def test_close_positions_after_date_skips_root_update_when_nothing_closed():
+    close_dates = pd.Series([pd.Timestamp("2099-01-01")], index=["c1"], name="date")
+    algo = ClosePositionsAfterDates(close_dates)
+
+    target = mock.MagicMock()
+    target.perm = {}
+    target.now = pd.Timestamp("2024-01-01")
+    target.children = {"c1": SecurityBase("c1")}
+    target.root = mock.MagicMock()
+
+    assert algo(target)
+    target.root.update.assert_not_called()

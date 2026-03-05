@@ -150,6 +150,13 @@ class AzureDataSource:
         for column in out.columns:
             if isinstance(out[column].dtype, pd.DatetimeTZDtype):
                 out[column] = out[column].dt.tz_convert(None)
+            # Guard against non-finite numerics causing DBAPI overflow errors.
+            # pyodbc cannot bind inf/-inf into numeric SQL columns.
+            numeric = pd.to_numeric(out[column], errors="coerce")
+            if numeric.notna().any():
+                inf_mask = numeric.isin([float("inf"), float("-inf")])
+                if inf_mask.any():
+                    out.loc[inf_mask, column] = None
         return out.where(pd.notna(out), None)
 
     @staticmethod

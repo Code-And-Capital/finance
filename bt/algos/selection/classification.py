@@ -2,7 +2,7 @@ from typing import Any
 
 import pandas as pd
 
-from bt.utils.selection_utils import intersect_candidates_with_pool
+from utils.list_utils import keep_items_in_pool
 from .base_selection import SelectAll
 from utils.list_utils import normalize_string_list
 
@@ -72,9 +72,7 @@ class SelectSector(SelectAll):
             return False
         _, sector_row = resolved_sector
 
-        candidate_pool = intersect_candidates_with_pool(
-            candidate_pool, list(sector_row.index)
-        )
+        candidate_pool = keep_items_in_pool(candidate_pool, list(sector_row.index))
         temp["selected"] = [
             name for name in candidate_pool if sector_row.get(name) in self.sectors
         ]

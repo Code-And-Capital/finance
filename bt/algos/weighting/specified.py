@@ -1,4 +1,4 @@
-from bt.core.algo_base import Algo
+from bt.algos.core import Algo
 import pandas as pd
 
 
@@ -132,7 +132,7 @@ class WeighTarget(Algo):
             row = weights.loc[target.now]
 
             # Drop NaNs to avoid invalid tickers and assign to temp
-            target.temp["weights"] = row.dropna()
+            target.temp["weights"] = row.dropna().to_dict()
 
             return True
 

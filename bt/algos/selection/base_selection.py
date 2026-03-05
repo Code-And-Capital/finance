@@ -3,13 +3,8 @@ from typing import Any
 
 import pandas as pd
 
-from bt.core.algo_base import Algo
-from bt.utils.selection_utils import (
-    filter_tickers_by_current_price,
-    intersect_candidates_with_pool,
-    resolve_candidate_pool_with_fallback,
-    resolve_selection_context,
-)
+from bt.algos.core import Algo
+from utils.list_utils import keep_items_in_pool
 from utils.math_utils import is_zero
 
 
@@ -36,13 +31,13 @@ class SelectAll(Algo):
 
     def __call__(self, target: Any) -> bool:
         """Populate ``target.temp['selected']`` with selected tickers."""
-        context = resolve_selection_context(target)
+        context = self._resolve_selection_context(target)
         if context is None:
             return False
         temp, universe, now = context
 
         candidates = list(universe.columns)
-        temp["selected"] = filter_tickers_by_current_price(
+        temp["selected"] = self._filter_tickers_by_current_price(
             universe=universe,
             now=now,
             tickers=candidates,
@@ -51,47 +46,18 @@ class SelectAll(Algo):
         )
         return True
 
-    def _resolve_wide_data_row_at_now(
-        self,
-        now: pd.Timestamp,
-        inline_wide: pd.DataFrame | None,
-        wide_key: str | None,
-        key_resolver: Callable[[str], Any],
-    ) -> tuple[pd.DataFrame, pd.Series] | None:
-        """Resolve a wide DataFrame source and return row at now."""
-        try:
-            wide_df = inline_wide if wide_key is None else key_resolver(wide_key)
-        except Exception:
-            return None
-        if not isinstance(wide_df, pd.DataFrame):
-            return None
-        if now not in wide_df.index:
-            return None
-
-        row = wide_df.loc[now]
-        if not isinstance(row, pd.Series):
-            return None
-        return wide_df, row.dropna()
-
-    def _signal_row_to_bool_mask(self, row: pd.Series) -> pd.Series:
-        """Convert a signal row to a robust boolean mask."""
-        try:
-            return row.fillna(False).astype(bool)
-        except (TypeError, ValueError):
-            return pd.Series(False, index=row.index)
-
     def _resolve_context_and_candidate_pool(
         self,
         target: Any,
         fallback_selector: Callable[[], bool],
     ) -> tuple[dict[str, Any], pd.DataFrame, pd.Timestamp, list[Any]] | None:
         """Resolve selection context and candidate pool in one shared step."""
-        context = resolve_selection_context(target)
+        context = self._resolve_selection_context(target)
         if context is None:
             return None
         temp, universe, now = context
 
-        candidate_pool = resolve_candidate_pool_with_fallback(
+        candidate_pool = self._resolve_candidate_pool_with_fallback(
             temp,
             fallback_selector,
             allowed_candidates=list(universe.columns),
@@ -108,10 +74,6 @@ class SelectHasData(SelectAll):
     ----------
     lookback : pandas.DateOffset, optional
         Historical lookback window ending at ``target.now``.
-    include_no_data : bool, optional
-        Passed to :class:`SelectAll` fallback and current-price filtering.
-    include_negative : bool, optional
-        Passed to :class:`SelectAll` fallback and current-price filtering.
 
     Notes
     -----
@@ -124,13 +86,9 @@ class SelectHasData(SelectAll):
     def __init__(
         self,
         lookback: pd.DateOffset = pd.DateOffset(months=3),
-        include_no_data: bool = False,
-        include_negative: bool = False,
     ) -> None:
         """Initialize data-availability selector."""
-        super().__init__(
-            include_no_data=include_no_data, include_negative=include_negative
-        )
+        super().__init__()
         if not isinstance(lookback, pd.DateOffset):
             raise TypeError("SelectHasData `lookback` must be a pandas.DateOffset.")
         self.lookback = lookback
@@ -159,25 +117,18 @@ class SelectHasData(SelectAll):
 
         complete_history = history.notna().all(axis=0)
         candidates = list(complete_history[complete_history].index)
-        temp["selected"] = filter_tickers_by_current_price(
+        temp["selected"] = self._filter_tickers_by_current_price(
             universe=universe,
             now=now,
             tickers=candidates,
-            include_no_data=self.include_no_data,
-            include_negative=self.include_negative,
+            include_no_data=False,
+            include_negative=False,
         )
         return True
 
 
 class SelectActive(SelectAll):
     """Drop inactive names from ``target.temp['selected']``.
-
-    Parameters
-    ----------
-    include_no_data : bool, optional
-        Passed to :class:`SelectAll` when a fallback selection is needed.
-    include_negative : bool, optional
-        Passed to :class:`SelectAll` when a fallback selection is needed.
 
     Notes
     -----
@@ -188,13 +139,9 @@ class SelectActive(SelectAll):
     - Output order matches the original ``selected`` order.
     """
 
-    def __init__(
-        self, include_no_data: bool = False, include_negative: bool = False
-    ) -> None:
-        """Initialize active-name selector with SelectAll fallback options."""
-        super().__init__(
-            include_no_data=include_no_data, include_negative=include_negative
-        )
+    def __init__(self) -> None:
+        """Initialize active-name selector."""
+        super().__init__()
 
     def __call__(self, target: Any) -> bool:
         """Keep active names and store result in ``target.temp['selected']``.
@@ -241,13 +188,9 @@ class SelectIsOpen(SelectAll):
     - Returns ``False`` for malformed state (invalid context/children/weights).
     """
 
-    def __init__(
-        self, include_no_data: bool = False, include_negative: bool = False
-    ) -> None:
-        """Initialize open-position selector with SelectAll fallback options."""
-        super().__init__(
-            include_no_data=include_no_data, include_negative=include_negative
-        )
+    def __init__(self) -> None:
+        """Initialize open-position selector."""
+        super().__init__()
 
     def __call__(self, target: Any) -> bool:
         """Filter ``target.temp['selected']`` to names with open positions."""

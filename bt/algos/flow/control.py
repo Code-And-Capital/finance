@@ -1,4 +1,4 @@
-from bt.core.algo_base import Algo
+from bt.algos.core import Algo
 from typing import Any, Callable
 
 
@@ -45,8 +45,8 @@ class Require(Algo):
         bool
             Predicate result when item value exists, otherwise ``if_none``.
         """
-        temp = getattr(target, "temp", None)
-        if not isinstance(temp, dict):
+        temp = self._resolve_temp(target)
+        if temp is None:
             return self.if_none
 
         if self.item not in temp:

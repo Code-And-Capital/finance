@@ -1,4 +1,9 @@
-from utils.math_utils import is_zero, validate_integer, validate_non_negative
+from utils.math_utils import (
+    is_zero,
+    validate_integer,
+    validate_non_negative,
+    validate_real,
+)
 import numpy as np
 from decimal import Decimal
 import pytest
@@ -82,3 +87,14 @@ def test_validate_integer_rejects_non_integer_types():
 
     with pytest.raises(TypeError, match=r"^n must be an integer\.$"):
         validate_integer("3", "n")
+
+
+def test_validate_real_accepts_real_types():
+    assert validate_real(1, "x") == 1.0
+    assert validate_real(np.float64(1.5), "x") == 1.5
+    assert validate_real(Decimal("2.25"), "x") == 2.25
+
+
+def test_validate_real_rejects_non_real_types():
+    with pytest.raises(TypeError, match=r"^x must be numeric\.$"):
+        validate_real("1.0", "x")

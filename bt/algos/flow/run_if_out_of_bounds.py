@@ -1,6 +1,6 @@
 from typing import Any
 
-from bt.core.algo_base import Algo
+from bt.algos.core import Algo
 from utils.math_utils import validate_non_negative
 
 
@@ -76,8 +76,8 @@ class RunIfOutOfBounds(Algo):
             ``True`` when any tracked allocation exceeds tolerance, otherwise
             ``False``. Returns ``False`` when required state is missing.
         """
-        temp = getattr(target, "temp", None)
-        if not isinstance(temp, dict):
+        temp = self._resolve_temp(target)
+        if temp is None:
             return False
 
         if "weights" not in temp:
@@ -130,8 +130,8 @@ class RunIfCashOutOfBounds(Algo):
             ``True`` when cash drift exceeds tolerance, else ``False``.
             Returns ``False`` when required state is missing.
         """
-        temp = getattr(target, "temp", None)
-        if not isinstance(temp, dict):
+        temp = self._resolve_temp(target)
+        if temp is None:
             return False
 
         if "cash" not in temp:

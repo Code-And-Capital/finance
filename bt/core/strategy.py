@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from copy import deepcopy
 from bt.core.nodes import Node
-from bt.core.algo_base import AlgoStack
+from bt.algos.core import AlgoStack
 from bt.core.security import SecurityBase, Security
 from utils.math_utils import is_zero
 

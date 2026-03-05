@@ -29,6 +29,7 @@ from pipelines.daily_market_data import (
     OptionsData,
     PricingData,
 )
+from handyman.holdings import get_index_holdings
 from handyman.holdings import get_llm_holdings
 from utils.logging import configure_file_logging, log
 
@@ -90,6 +91,7 @@ def run_daily_market_data(
     configs_path: str | None = None,
     indices: list[str] | None = None,
     include_options: bool = False,
+    use_latest_holdings_snapshot: bool = False,
 ) -> dict[str, object]:
     """Run the full daily market data workflow and return produced datasets."""
     selected_indices = indices if indices is not None else DEFAULT_INDICES
@@ -99,15 +101,35 @@ def run_daily_market_data(
         f"write_to_db={write_to_db}"
     )
 
-    log("Running holdings pipeline.")
-    holdings_frames = [
-        DownloadHoldings(fund_name=fund, url=url).run(
-            write_to_azure=write_to_db,
+    if use_latest_holdings_snapshot:
+        log("Loading holdings from latest database snapshot (rerun shortcut).")
+        df_holdings = get_index_holdings(
+            get_latest=True,
             configs_path=configs_path,
         )
-        for fund, url in ETF_URLS.items()
-    ]
-    df_holdings = pd.concat(holdings_frames, ignore_index=True)
+        if df_holdings.empty:
+            log(
+                "Latest holdings snapshot is empty; falling back to DownloadHoldings pull.",
+                type="warning",
+            )
+            holdings_frames = [
+                DownloadHoldings(fund_name=fund, url=url).run(
+                    write_to_azure=write_to_db,
+                    configs_path=configs_path,
+                )
+                for fund, url in ETF_URLS.items()
+            ]
+            df_holdings = pd.concat(holdings_frames, ignore_index=True)
+    else:
+        log("Running holdings pipeline.")
+        holdings_frames = [
+            DownloadHoldings(fund_name=fund, url=url).run(
+                write_to_azure=write_to_db,
+                configs_path=configs_path,
+            )
+            for fund, url in ETF_URLS.items()
+        ]
+        df_holdings = pd.concat(holdings_frames, ignore_index=True)
     holdings_tickers = df_holdings["TICKER"].dropna().astype(str).unique()
     log(f"Holdings pipeline complete: {len(df_holdings)} rows")
 
@@ -310,9 +332,11 @@ def run_market_data_for_tickers(
 
 
 if __name__ == "__main__":
+    # tail -f "$(ls -t logs/daily_market_data_*.log | head -n 1)"
     write_to_db = True
     configs_path = None
     include_options = False
+    use_latest_holdings_snapshot = False
     log_dir = PROJECT_ROOT / "logs"
     log_file = log_dir / f"daily_market_data_{datetime.now():%Y%m%d_%H%M%S}.log"
     configure_file_logging(log_file=str(log_file))
@@ -322,6 +346,7 @@ if __name__ == "__main__":
         write_to_db=write_to_db,
         include_options=include_options,
         configs_path=configs_path,
+        use_latest_holdings_snapshot=use_latest_holdings_snapshot,
     )
     ran_tickers = set(
         pd.Index(daily_output["tickers_run"]["holdings_tickers"])

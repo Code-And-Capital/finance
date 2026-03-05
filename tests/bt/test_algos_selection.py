@@ -118,14 +118,12 @@ def test_select_randomly_large_n_behaves_like_select_all():
     assert len(selected) == 1
     assert "c2" in selected
 
-    # if specify include_no_data then 2
-    algo2 = SelectRandomly(n=9999, include_no_data=True)
+    # strict filtering still removes missing current prices
+    algo2 = SelectRandomly(n=9999)
 
     assert algo2(s)
     selected = s.temp.pop("selected")
-    assert len(selected) == 2
-    assert "c1" in selected
-    assert "c2" in selected
+    assert selected == ["c2"]
 
     # behavior on negative prices
     s.update(dts[2])
@@ -135,13 +133,11 @@ def test_select_randomly_large_n_behaves_like_select_all():
     assert len(selected) == 1
     assert "c2" in selected
 
-    algo3 = SelectRandomly(n=9999, include_negative=True)
+    algo3 = SelectRandomly(n=9999)
 
     assert algo3(s)
     selected = s.temp.pop("selected")
-    assert len(selected) == 2
-    assert "c1" in selected
-    assert "c2" in selected
+    assert selected == ["c2"]
 
 
 def test_select_randomly():
@@ -162,19 +158,19 @@ def test_select_randomly():
     assert s.temp.pop("selected") == ["c2"]
 
     random.seed(1000)
-    algo = SelectRandomly(n=1, include_negative=True)
+    algo = SelectRandomly(n=1)
     assert algo(s)
-    assert s.temp.pop("selected") == ["c3"]
+    assert s.temp.pop("selected") == ["c2"]
 
     random.seed(1009)
-    algo = SelectRandomly(n=1, include_no_data=True)
+    algo = SelectRandomly(n=1)
     assert algo(s)
-    assert s.temp.pop("selected") == ["c1"]
+    assert s.temp.pop("selected") == ["c2"]
 
     random.seed(1009)
     # If selected already set, it will further filter it
     s.temp["selected"] = ["c2"]
-    algo = SelectRandomly(n=1, include_no_data=True)
+    algo = SelectRandomly(n=1)
     assert algo(s)
     assert s.temp.pop("selected") == ["c2"]
 
@@ -195,7 +191,7 @@ def test_select_randomly_filters_missing_universe_members():
     s.update(dts[0])
     s.temp["selected"] = ["c1", "missing"]
 
-    algo = SelectRandomly(n=9999, include_no_data=True)
+    algo = SelectRandomly(n=9999)
     assert algo(s)
     assert s.temp["selected"] == ["c1"]
 
@@ -304,15 +300,13 @@ def test_select_these():
     assert len(selected) == 1
     assert "c2" in selected
 
-    # if specify include_no_data then 2
-    algo2 = SelectThese(["c1", "c2"], include_no_data=True)
+    # strict filtering removes missing current prices
+    algo2 = SelectThese(["c1", "c2"])
     s.temp.pop("selected", None)
 
     assert algo2(s)
     selected = s.temp["selected"]
-    assert len(selected) == 2
-    assert "c1" in selected
-    assert "c2" in selected
+    assert selected == ["c2"]
 
     # behavior on negative prices
     s.update(dts[2])
@@ -322,14 +316,12 @@ def test_select_these():
     assert len(selected) == 1
     assert "c2" in selected
 
-    algo3 = SelectThese(["c1", "c2"], include_negative=True)
+    algo3 = SelectThese(["c1", "c2"])
     s.temp.pop("selected", None)
 
     assert algo3(s)
     selected = s.temp["selected"]
-    assert len(selected) == 2
-    assert "c1" in selected
-    assert "c2" in selected
+    assert selected == ["c2"]
 
 
 def test_select_these_accepts_scalar_string():
@@ -352,7 +344,7 @@ def test_select_these_uses_existing_selected_pool():
     s.update(dts[0])
     s.temp["selected"] = ["c2"]
 
-    algo = SelectThese(["c1", "c2"], include_no_data=True)
+    algo = SelectThese(["c1", "c2"])
     assert algo(s)
     assert s.temp["selected"] == ["c2"]
 
@@ -364,7 +356,7 @@ def test_select_these_calls_select_all_when_selected_empty_or_missing():
     s.setup(data)
     s.update(dts[0])
 
-    algo = SelectThese(["c1", "c2"], include_no_data=True)
+    algo = SelectThese(["c1", "c2"])
     assert algo(s)
     assert set(s.temp["selected"]) == {"c1", "c2"}
 
@@ -380,7 +372,7 @@ def test_select_these_deduplicates_tickers():
     s.setup(data)
     s.update(dts[0])
 
-    algo = SelectThese(["c2", "c1", "c2", "c1"], include_no_data=True)
+    algo = SelectThese(["c2", "c1", "c2", "c1"])
     assert algo(s)
     assert set(s.temp["selected"]) == {"c1", "c2"}
 
@@ -392,7 +384,7 @@ def test_select_these_ignores_tickers_not_in_universe():
     s.setup(data)
     s.update(dts[0])
 
-    algo = SelectThese(["missing", "c1"], include_no_data=True)
+    algo = SelectThese(["missing", "c1"])
     assert algo(s)
     assert s.temp["selected"] == ["c1"]
 
@@ -471,14 +463,12 @@ def test_select_where_all():
     assert "c2" in selected
     del s.temp["selected"]
 
-    # if specify include_no_data then 2
-    algo2 = SelectWhere("where", include_no_data=True)
+    # strict filtering removes missing current prices
+    algo2 = SelectWhere("where")
 
     assert algo2(s)
     selected = s.temp["selected"]
-    assert len(selected) == 2
-    assert "c1" in selected
-    assert "c2" in selected
+    assert selected == ["c2"]
 
     # behavior on negative prices
     s.update(dts[2])
@@ -489,13 +479,11 @@ def test_select_where_all():
     assert "c2" in selected
     del s.temp["selected"]
 
-    algo3 = SelectWhere("where", include_negative=True)
+    algo3 = SelectWhere("where")
 
     assert algo3(s)
     selected = s.temp["selected"]
-    assert len(selected) == 2
-    assert "c1" in selected
-    assert "c2" in selected
+    assert selected == ["c2"]
 
 
 def test_select_where():

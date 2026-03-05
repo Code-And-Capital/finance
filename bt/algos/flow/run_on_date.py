@@ -3,8 +3,8 @@ from typing import Any
 
 import pandas as pd
 
-from bt.core.algo_base import Algo
-from utils.date_utils import coerce_timestamp, coerce_timestamp_or_none
+from bt.algos.core import Algo
+from utils.date_utils import coerce_timestamp
 
 
 class RunOnDate(Algo):
@@ -60,7 +60,7 @@ class RunOnDate(Algo):
             ``True`` when ``target.now`` matches a configured date, else
             ``False``.
         """
-        now = coerce_timestamp_or_none(getattr(target, "now", None))
+        now = self._resolve_now(target)
         if now is None:
             return False
         return now in self._dates

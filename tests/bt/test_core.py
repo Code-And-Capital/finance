@@ -19,7 +19,7 @@ from bt.core.security import (
     CouponPayingHedgeSecurity,
 )
 from bt.core.strategy import StrategyBase, Strategy
-from bt.core.algo_base import AlgoStack
+from bt.algos.core import AlgoStack
 from bt.algos.selection import SelectWhere, SelectAll
 from bt.algos.weighting import WeighEqually, WeighTarget
 from bt.algos.portfolio_ops import Rebalance

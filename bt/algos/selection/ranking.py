@@ -3,7 +3,7 @@ from typing import Any
 import pandas as pd
 import numpy as np
 
-from bt.utils.selection_utils import intersect_candidates_with_pool
+from utils.list_utils import keep_items_in_pool
 from .base_selection import SelectAll
 from utils.math_utils import validate_integer
 
@@ -312,9 +312,7 @@ class SectorDoubleSort(SelectAll):
             self.stats = _append_selection_stats(self.stats, now, ranked)
             return True
 
-        candidate_names = intersect_candidates_with_pool(
-            list(ranked.index), list(sector_row.index)
-        )
+        candidate_names = keep_items_in_pool(list(ranked.index), list(sector_row.index))
         if not candidate_names:
             temp["selected"] = []
             self.stats = _append_selection_stats(

@@ -1,6 +1,6 @@
 from typing import Any, Callable
 
-from bt.core.algo_base import Algo
+from bt.algos.core import Algo
 import utils.logging as logging
 
 

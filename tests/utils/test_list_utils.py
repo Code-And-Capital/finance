@@ -1,6 +1,11 @@
 import pytest
 
-from utils.list_utils import normalize_string_list, normalize_to_list
+from utils.list_utils import (
+    drop_items_in_pool,
+    keep_items_in_pool,
+    normalize_string_list,
+    normalize_to_list,
+)
 
 
 def test_normalize_to_list_none():
@@ -45,3 +50,15 @@ def test_normalize_string_list_rejects_non_strings():
 def test_normalize_string_list_rejects_empty_strings():
     with pytest.raises(ValueError, match="tickers must not contain empty strings"):
         normalize_string_list(["AAPL", " "], field_name="tickers")
+
+
+def test_keep_items_in_pool_preserves_items_order():
+    items = ["c3", "c1", "c2"]
+    pool = ["c1", "c2"]
+    assert keep_items_in_pool(items, pool) == ["c1", "c2"]
+
+
+def test_drop_items_in_pool_preserves_items_order():
+    items = ["c3", "c1", "c2", "c1"]
+    excluded = ["c1"]
+    assert drop_items_in_pool(items, excluded) == ["c3", "c2"]

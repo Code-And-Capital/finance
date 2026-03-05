@@ -12,12 +12,6 @@ class SelectRandomly(SelectAll):
     ----------
     n : int
         Maximum number of tickers to select.
-    include_no_data : bool, optional
-        If ``False`` (default), exclude securities with missing prices at
-        ``target.now``.
-    include_negative : bool, optional
-        If ``False`` (default), exclude non-positive prices. Ignored when
-        ``include_no_data`` is ``True``.
 
     Notes
     -----
@@ -32,8 +26,6 @@ class SelectRandomly(SelectAll):
     def __init__(
         self,
         n: int,
-        include_no_data: bool = False,
-        include_negative: bool = False,
     ) -> None:
         """Initialize random selector.
 
@@ -44,9 +36,7 @@ class SelectRandomly(SelectAll):
         ValueError
             If ``n`` is negative.
         """
-        super().__init__(
-            include_no_data=include_no_data, include_negative=include_negative
-        )
+        super().__init__()
         n_val = int(validate_integer(n, "SelectRandomly `n`"))
         self.n = int(validate_non_negative(n_val, "SelectRandomly `n`"))
 

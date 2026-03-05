@@ -1,4 +1,4 @@
-from bt.core.algo_base import Algo
+from bt.algos.core import Algo
 import pandas as pd
 import numpy as np
 import sklearn
@@ -171,5 +171,5 @@ class WeighMeanVar(Algo):
             covar_method=self.covar_method,
         )
 
-        target.temp["weights"] = weights.dropna()
+        target.temp["weights"] = weights.dropna().to_dict()
         return True

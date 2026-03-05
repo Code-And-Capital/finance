@@ -3,8 +3,8 @@ from typing import Any
 
 import pandas as pd
 
-from bt.core.algo_base import Algo
-from utils.date_utils import coerce_timestamp, coerce_timestamp_or_none
+from bt.algos.core import Algo
+from utils.date_utils import coerce_timestamp
 
 
 class RunPeriod(Algo, metaclass=abc.ABCMeta):
@@ -50,16 +50,12 @@ class RunPeriod(Algo, metaclass=abc.ABCMeta):
         bool
             ``True`` when trigger conditions are met, else ``False``.
         """
-        now = getattr(target, "now", None)
-        if now is None:
-            return False
-
         data = getattr(target, "data", None)
         index = getattr(data, "index", None)
         if index is None or len(index) == 0:
             return False
 
-        now_ts = coerce_timestamp_or_none(now)
+        now_ts = self._resolve_now(target)
         if now_ts is None:
             return False
 
