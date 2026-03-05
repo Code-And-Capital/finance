@@ -11,17 +11,25 @@ to more advanced filters (SelectHasData), random
 selection for benchmarking, and logical/boolean selection utilities.
 """
 
-from .base_selection import SelectAll, SelectHasData, SelectActive
+from .base_selection import SelectAll, SelectHasData, SelectActive, SelectIsOpen
 from .these import SelectThese, SelectWhere
-from .rank import SelectN
+from .ranking import SectorDoubleSort, SelectN, SelectQuantile
 from .random import SelectRandomly
+from .modifiers import RemoveSecurities, AddSecurity
+from .classification import SelectSector
 
 __all__ = [
     "SelectAll",
     "SelectThese",
     "SelectHasData",
     "SelectN",
+    "SelectQuantile",
+    "SectorDoubleSort",
     "SelectRandomly",
     "SelectWhere",
     "SelectActive",
+    "SelectIsOpen",
+    "RemoveSecurities",
+    "AddSecurity",
+    "SelectSector",
 ]

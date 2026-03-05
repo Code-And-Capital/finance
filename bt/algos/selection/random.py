@@ -2,10 +2,6 @@ import random
 from typing import Any
 
 from .base_selection import SelectAll
-from bt.utils.selection_utils import (
-    resolve_candidate_pool_with_fallback,
-    resolve_selection_context,
-)
 from utils.math_utils import validate_integer, validate_non_negative
 
 
@@ -56,18 +52,13 @@ class SelectRandomly(SelectAll):
 
     def __call__(self, target: Any) -> bool:
         """Compute random selection and store it in ``target.temp['selected']``."""
-        context = resolve_selection_context(target)
-        if context is None:
-            return False
-        temp, universe, _ = context
-
-        candidate_pool = resolve_candidate_pool_with_fallback(
-            temp,
+        resolved = self._resolve_context_and_candidate_pool(
+            target,
             lambda: super(SelectRandomly, self).__call__(target),
-            allowed_candidates=list(universe.columns),
         )
-        if candidate_pool is None:
+        if resolved is None:
             return False
+        temp, _, _, candidate_pool = resolved
 
         temp["selected"] = random.sample(
             candidate_pool, min(self.n, len(candidate_pool))

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
@@ -5,9 +6,11 @@ import pandas as pd
 from bt.core.algo_base import Algo
 from bt.utils.selection_utils import (
     filter_tickers_by_current_price,
-    resolve_selection_context,
+    intersect_candidates_with_pool,
     resolve_candidate_pool_with_fallback,
+    resolve_selection_context,
 )
+from utils.math_utils import is_zero
 
 
 class SelectAll(Algo):
@@ -48,6 +51,55 @@ class SelectAll(Algo):
         )
         return True
 
+    def _resolve_wide_data_row_at_now(
+        self,
+        now: pd.Timestamp,
+        inline_wide: pd.DataFrame | None,
+        wide_key: str | None,
+        key_resolver: Callable[[str], Any],
+    ) -> tuple[pd.DataFrame, pd.Series] | None:
+        """Resolve a wide DataFrame source and return row at now."""
+        try:
+            wide_df = inline_wide if wide_key is None else key_resolver(wide_key)
+        except Exception:
+            return None
+        if not isinstance(wide_df, pd.DataFrame):
+            return None
+        if now not in wide_df.index:
+            return None
+
+        row = wide_df.loc[now]
+        if not isinstance(row, pd.Series):
+            return None
+        return wide_df, row.dropna()
+
+    def _signal_row_to_bool_mask(self, row: pd.Series) -> pd.Series:
+        """Convert a signal row to a robust boolean mask."""
+        try:
+            return row.fillna(False).astype(bool)
+        except (TypeError, ValueError):
+            return pd.Series(False, index=row.index)
+
+    def _resolve_context_and_candidate_pool(
+        self,
+        target: Any,
+        fallback_selector: Callable[[], bool],
+    ) -> tuple[dict[str, Any], pd.DataFrame, pd.Timestamp, list[Any]] | None:
+        """Resolve selection context and candidate pool in one shared step."""
+        context = resolve_selection_context(target)
+        if context is None:
+            return None
+        temp, universe, now = context
+
+        candidate_pool = resolve_candidate_pool_with_fallback(
+            temp,
+            fallback_selector,
+            allowed_candidates=list(universe.columns),
+        )
+        if candidate_pool is None:
+            return None
+        return temp, universe, now, candidate_pool
+
 
 class SelectHasData(SelectAll):
     """Select names with complete non-null history over a lookback window.
@@ -85,18 +137,13 @@ class SelectHasData(SelectAll):
 
     def __call__(self, target: Any) -> bool:
         """Filter selection by historical data availability and current prices."""
-        context = resolve_selection_context(target)
-        if context is None:
-            return False
-        temp, universe, now = context
-
-        candidate_pool = resolve_candidate_pool_with_fallback(
-            temp,
+        resolved = self._resolve_context_and_candidate_pool(
+            target,
             lambda: super(SelectHasData, self).__call__(target),
-            allowed_candidates=list(universe.columns),
         )
-        if candidate_pool is None:
+        if resolved is None:
             return False
+        temp, universe, now, candidate_pool = resolved
         if not candidate_pool:
             temp["selected"] = []
             return True
@@ -158,27 +205,76 @@ class SelectActive(SelectAll):
             ``True`` when state was processed. Returns ``False`` when
             ``target.temp`` or ``target.perm`` is missing or not dict-like.
         """
-        context = resolve_selection_context(target)
-        if context is None:
-            return False
-        temp, universe, _ = context
-
         perm = getattr(target, "perm", None)
         if not isinstance(perm, dict):
             return False
 
-        candidate_pool = resolve_candidate_pool_with_fallback(
-            temp,
+        resolved = self._resolve_context_and_candidate_pool(
+            target,
             lambda: super(SelectActive, self).__call__(target),
-            allowed_candidates=list(universe.columns),
         )
-        if candidate_pool is None:
+        if resolved is None:
             return False
+        temp, _, _, candidate_pool = resolved
 
         rolled = set(perm.get("rolled", set()))
         closed = set(perm.get("closed", set()))
         inactive = rolled.union(closed)
-        target.temp["selected"] = [
-            name for name in candidate_pool if name not in inactive
-        ]
+        temp["selected"] = [name for name in candidate_pool if name not in inactive]
+        return True
+
+
+class SelectIsOpen(SelectAll):
+    """Keep only currently open positions from the candidate selection list.
+
+    This selector inspects ``target.children`` and marks a child as open when
+    its current ``weight`` is non-zero (within numerical tolerance). Open names
+    are filtered from the current candidate pool and written to
+    ``target.temp['selected']``.
+
+    Notes
+    -----
+    - Candidate pool source is ``target.temp['selected']``.
+      If missing or empty, :class:`SelectAll` is run first.
+    - Only child names present in ``target.universe.columns`` are eligible.
+    - Output order is deterministic and follows candidate-pool order.
+    - Returns ``False`` for malformed state (invalid context/children/weights).
+    """
+
+    def __init__(
+        self, include_no_data: bool = False, include_negative: bool = False
+    ) -> None:
+        """Initialize open-position selector with SelectAll fallback options."""
+        super().__init__(
+            include_no_data=include_no_data, include_negative=include_negative
+        )
+
+    def __call__(self, target: Any) -> bool:
+        """Filter ``target.temp['selected']`` to names with open positions."""
+        children = getattr(target, "children", None)
+        if not isinstance(children, dict):
+            return False
+
+        resolved = self._resolve_context_and_candidate_pool(
+            target,
+            lambda: super(SelectIsOpen, self).__call__(target),
+        )
+        if resolved is None:
+            return False
+        temp, _, _, candidate_pool = resolved
+
+        open_candidates: list[str] = []
+        for candidate_name in candidate_pool:
+            child = children.get(candidate_name)
+            if child is None:
+                continue
+
+            try:
+                child_weight = child.weight
+                if not is_zero(child_weight):
+                    open_candidates.append(candidate_name)
+            except Exception:
+                return False
+
+        temp["selected"] = open_candidates
         return True

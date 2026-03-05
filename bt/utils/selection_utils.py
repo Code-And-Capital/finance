@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import pandas as pd
@@ -109,9 +109,9 @@ def intersect_candidates_with_pool(
     return [candidate for candidate in candidates if candidate in pool_set]
 
 
-def signal_row_to_bool_mask(row: pd.Series) -> pd.Series:
-    """Convert a signal row to a robust boolean mask."""
-    try:
-        return row.fillna(False).astype(bool)
-    except (TypeError, ValueError):
-        return pd.Series(False, index=row.index)
+def exclude_candidates_from_pool(
+    candidates: list[str], excluded_candidates: Iterable[str]
+) -> list[str]:
+    """Return candidates not in excluded_candidates, preserving candidates order."""
+    excluded_set = set(excluded_candidates)
+    return [candidate for candidate in candidates if candidate not in excluded_set]

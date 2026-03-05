@@ -7,11 +7,17 @@ import pytest
 
 from bt.core import Strategy
 from bt.algos.selection import (
+    AddSecurity,
+    SectorDoubleSort,
+    RemoveSecurities,
     SelectActive,
     SelectAll,
     SelectHasData,
+    SelectIsOpen,
     SelectN,
+    SelectQuantile,
     SelectRandomly,
+    SelectSector,
     SelectThese,
     SelectWhere,
 )
@@ -799,7 +805,7 @@ def test_select_n_handles_missing_or_invalid_temp():
     assert not algo(target)
 
 
-def test_select_n_requires_selected():
+def test_select_n_uses_select_all_when_selected_missing():
     s = Strategy("s")
     dts = pd.date_range("2010-01-01", periods=1)
     data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
@@ -807,7 +813,8 @@ def test_select_n_requires_selected():
     s.update(dts[0])
     s.temp["stat"] = pd.Series({"c1": 1.0, "c2": 2.0})
     algo = SelectN(n=1)
-    assert not algo(s)
+    assert algo(s)
+    assert s.temp["selected"] == ["c2"]
 
 
 def test_select_n_uses_custom_stat_key():
@@ -822,6 +829,173 @@ def test_select_n_uses_custom_stat_key():
 
     assert algo(s)
     assert s.temp["selected"] == ["c2"]
+
+
+def test_select_n_updates_stats():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["stat"] = pd.Series({"c1": 3.0, "c2": 2.0, "c3": 1.0})
+    s.temp["selected"] = ["c1", "c2", "c3"]
+
+    algo = SelectN(n=2)
+    assert algo(s)
+    assert dts[0] in algo.stats.index
+    assert list(algo.stats.columns) == ["TOTAL_NAMES", "MEAN", "MEDIAN"]
+
+
+def test_select_quantile_selects_requested_bucket_descending():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["stat"] = pd.Series({"c1": 4.0, "c2": 3.0, "c3": 2.0, "c4": 1.0})
+    s.temp["selected"] = ["c1", "c2", "c3", "c4"]
+
+    algo = SelectQuantile(n_tiles=2, tile=1, stat_key="stat", sort_descending=True)
+    assert algo(s)
+    assert s.temp["selected"] == ["c1", "c2"]
+
+
+def test_select_quantile_selects_requested_bucket_ascending():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["stat"] = pd.Series({"c1": 4.0, "c2": 3.0, "c3": 2.0, "c4": 1.0})
+    s.temp["selected"] = ["c1", "c2", "c3", "c4"]
+
+    algo = SelectQuantile(n_tiles=2, tile=1, stat_key="stat", sort_descending=False)
+    assert algo(s)
+    assert s.temp["selected"] == ["c4", "c3"]
+
+
+def test_select_quantile_validates_inputs():
+    with pytest.raises(ValueError, match="n_tiles"):
+        SelectQuantile(n_tiles=1, tile=1, stat_key="stat")
+
+    with pytest.raises(ValueError, match="tile"):
+        SelectQuantile(n_tiles=4, tile=5, stat_key="stat")
+
+    with pytest.raises(TypeError, match="stat_key"):
+        SelectQuantile(n_tiles=4, tile=1, stat_key="")
+
+    with pytest.raises(TypeError, match="sort_descending"):
+        SelectQuantile(n_tiles=4, tile=1, sort_descending=1)
+
+
+def test_select_quantile_returns_false_on_missing_required_state():
+    algo = SelectQuantile(n_tiles=4, tile=1, stat_key="stat")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+
+    assert not algo(s)
+    s.temp["stat"] = pd.Series({"c1": 1.0})
+    assert algo(s)
+    assert s.temp["selected"] == ["c1"]
+
+
+def test_select_quantile_updates_stats():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["stat"] = pd.Series({"c1": 4.0, "c2": 3.0, "c3": 2.0, "c4": 1.0})
+    s.temp["selected"] = ["c1", "c2", "c3", "c4"]
+
+    algo = SelectQuantile(n_tiles=2, tile=2, stat_key="stat")
+    assert algo(s)
+    assert dts[0] in algo.stats.index
+    assert list(algo.stats.columns) == ["TOTAL_NAMES", "MEAN", "MEDIAN"]
+
+
+def test_double_sorting_selects_best_quantile_per_sector_descending():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    sector_wide = pd.DataFrame(
+        index=dts,
+        data={"c1": ["Tech"], "c2": ["Tech"], "c3": ["Energy"], "c4": ["Energy"]},
+    )
+    s.setup(data, sector_wide=sector_wide)
+    s.update(dts[0])
+    s.temp["stat"] = pd.Series({"c1": 10.0, "c2": 5.0, "c3": 8.0, "c4": 1.0})
+    s.temp["selected"] = ["c1", "c2", "c3", "c4"]
+
+    algo = SectorDoubleSort(n_tiles=2, stat_key="stat", sort_descending=True)
+    assert algo(s)
+    assert s.temp["selected"] == ["c1", "c3"]
+    assert dts[0] in algo.stats.index
+
+
+def test_double_sorting_selects_best_quantile_per_sector_ascending():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    sector_wide = pd.DataFrame(
+        index=dts,
+        data={"c1": ["Tech"], "c2": ["Tech"], "c3": ["Energy"], "c4": ["Energy"]},
+    )
+    s.setup(data, sector_wide=sector_wide)
+    s.update(dts[0])
+    s.temp["stat"] = pd.Series({"c1": 10.0, "c2": 5.0, "c3": 8.0, "c4": 1.0})
+    s.temp["selected"] = ["c1", "c2", "c3", "c4"]
+
+    algo = SectorDoubleSort(n_tiles=2, stat_key="stat", sort_descending=False)
+    assert algo(s)
+    assert s.temp["selected"] == ["c2", "c4"]
+
+
+def test_double_sorting_respects_preselected_subset():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    sector_wide = pd.DataFrame(
+        index=dts,
+        data={"c1": ["Tech"], "c2": ["Tech"], "c3": ["Energy"], "c4": ["Energy"]},
+    )
+    s.setup(data, sector_wide=sector_wide)
+    s.update(dts[0])
+    s.temp["stat"] = pd.Series({"c1": 10.0, "c2": 5.0, "c3": 8.0, "c4": 1.0})
+    s.temp["selected"] = ["c1", "c2", "c4"]
+
+    algo = SectorDoubleSort(n_tiles=2, stat_key="stat")
+    assert algo(s)
+    assert s.temp["selected"] == ["c1", "c4"]
+
+
+def test_double_sorting_validates_inputs():
+    with pytest.raises(ValueError, match="`n_tiles`"):
+        SectorDoubleSort(n_tiles=1)
+    with pytest.raises(TypeError, match="stat_key"):
+        SectorDoubleSort(n_tiles=2, stat_key="")
+    with pytest.raises(TypeError, match="sort_descending"):
+        SectorDoubleSort(n_tiles=2, sort_descending=1)
+    with pytest.raises(TypeError, match="sector_data"):
+        SectorDoubleSort(n_tiles=2, sector_data=123)
+
+
+def test_double_sorting_returns_false_on_missing_state():
+    algo = SectorDoubleSort(n_tiles=2)
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+
+    assert not algo(s)
+    s.temp["stat"] = pd.Series({"c1": 1.0})
+    assert not algo(s)
+    s.temp["selected"] = ["c1"]
+    assert not algo(s)
 
 
 def test_select_active_uses_select_all_when_selected_missing_or_empty():
@@ -872,6 +1046,356 @@ def test_select_active_accepts_non_set_inactive_collections():
     algo = SelectActive()
     assert algo(s)
     assert s.temp["selected"] == ["c1", "c3"]
+
+
+def test_select_is_open_filters_candidate_pool_to_open_positions():
+    algo = SelectIsOpen()
+
+    dts = pd.date_range("2010-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=100.0)
+
+    target = mock.MagicMock()
+    target.temp = {"selected": ["c2", "c1"]}
+    target.universe = universe
+    target.now = dts[0]
+    target.children = {
+        "c1": mock.MagicMock(weight=0.5),
+        "c3": mock.MagicMock(weight=0.0),
+        "outside": mock.MagicMock(weight=1.0),
+    }
+
+    assert algo(target)
+    assert target.temp["selected"] == ["c1"]
+
+
+def test_select_is_open_uses_select_all_when_selected_missing_or_empty():
+    algo = SelectIsOpen()
+    dts = pd.date_range("2010-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    target = mock.MagicMock()
+    target.temp = {"selected": []}
+    target.universe = universe
+    target.now = dts[0]
+    target.children = {
+        "c1": mock.MagicMock(weight=0.2),
+        "c2": mock.MagicMock(weight=0.0),
+    }
+
+    assert algo(target)
+    assert target.temp["selected"] == ["c1"]
+
+
+def test_select_is_open_returns_false_on_malformed_state():
+    algo = SelectIsOpen()
+
+    target = mock.MagicMock(spec=[])
+    assert not algo(target)
+
+    target = mock.MagicMock()
+    dts = pd.date_range("2010-01-01", periods=1)
+    target.temp = {}
+    target.universe = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    target.now = dts[0]
+    target.children = []
+    assert not algo(target)
+
+
+def test_select_is_open_treats_near_zero_weight_as_closed():
+    algo = SelectIsOpen()
+    dts = pd.date_range("2010-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+
+    target = mock.MagicMock()
+    target.temp = {"selected": ["c1"]}
+    target.universe = universe
+    target.now = dts[0]
+    target.children = {"c1": mock.MagicMock(weight=1e-13)}
+
+    assert algo(target)
+    assert target.temp["selected"] == []
+
+
+def test_select_is_open_skips_candidates_missing_from_children():
+    algo = SelectIsOpen()
+    dts = pd.date_range("2010-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+
+    target = mock.MagicMock()
+    target.temp = {"selected": ["c1", "c2"]}
+    target.universe = universe
+    target.now = dts[0]
+    target.children = {"c1": mock.MagicMock(weight=0.5)}
+
+    assert algo(target)
+    assert target.temp["selected"] == ["c1"]
+
+
+def test_select_is_open_returns_false_when_weight_accessor_raises():
+    algo = SelectIsOpen()
+    dts = pd.date_range("2010-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+
+    class _Child:
+        @property
+        def weight(self):
+            raise RuntimeError("weight unavailable")
+
+    target = mock.MagicMock()
+    target.temp = {"selected": ["c1"]}
+    target.universe = universe
+    target.now = dts[0]
+    target.children = {"c1": _Child()}
+
+    assert not algo(target)
+
+
+def test_select_is_open_ignores_non_string_selected_entries():
+    algo = SelectIsOpen()
+    dts = pd.date_range("2010-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+
+    target = mock.MagicMock()
+    target.temp = {"selected": ["c1", 123, None]}
+    target.universe = universe
+    target.now = dts[0]
+    target.children = {
+        "c1": mock.MagicMock(weight=0.5),
+        "c2": mock.MagicMock(weight=0.0),
+    }
+
+    assert algo(target)
+    assert target.temp["selected"] == ["c1"]
+
+
+def test_remove_securities_removes_from_existing_selection():
+    algo = RemoveSecurities(["c2", "c4"])
+    dts = pd.date_range("2010-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    target = mock.MagicMock()
+    target.temp = {"selected": ["c1", "c2", "c3", "c4"]}
+    target.universe = universe
+    target.now = dts[0]
+
+    assert algo(target)
+    assert target.temp["selected"] == ["c1", "c3"]
+
+
+def test_remove_securities_sets_empty_when_selected_missing():
+    algo = RemoveSecurities(["c1"])
+    dts = pd.date_range("2010-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    target = mock.MagicMock()
+    target.temp = {}
+    target.universe = universe
+    target.now = dts[0]
+
+    assert algo(target)
+    assert target.temp["selected"] == []
+
+
+def test_remove_securities_returns_false_on_malformed_temp():
+    algo = RemoveSecurities(["c1"])
+    target = mock.MagicMock()
+    target.temp = []
+    dts = pd.date_range("2010-01-01", periods=1)
+    target.universe = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    target.now = dts[0]
+    assert not algo(target)
+
+
+def test_add_security_filters_closed_missing_and_non_positive():
+    algo = AddSecurity(["c1", "c2", "c3", "missing"], include_negative=False)
+
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    data.loc[dts[0], "c2"] = -1.0
+    data.loc[dts[0], "c3"] = np.nan
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = ["c4"]
+    s.perm["closed"] = {"c4"}
+
+    assert algo(s)
+    assert s.temp["selected"] == ["c1", "c4"]
+
+
+def test_add_security_include_negative_keeps_non_null_prices():
+    algo = AddSecurity(["c1", "c2", "c3"], include_negative=True)
+
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=100.0)
+    data.loc[dts[0], "c2"] = -1.0
+    data.loc[dts[0], "c3"] = np.nan
+    s.setup(data)
+    s.update(dts[0])
+
+    assert algo(s)
+    assert s.temp["selected"] == ["c1", "c2"]
+
+
+def test_add_security_returns_false_on_invalid_now():
+    algo = AddSecurity(["c1"])
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.now = "not-a-date"
+
+    assert not algo(s)
+    assert "selected" not in s.temp
+
+
+def test_add_security_returns_false_on_malformed_perm():
+    algo = AddSecurity(["c1"])
+    target = mock.MagicMock()
+    dts = pd.date_range("2010-01-01", periods=1)
+    target.temp = {}
+    target.universe = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    target.now = dts[0]
+    target.perm = []
+
+    assert not algo(target)
+
+
+def test_add_security_caches_closed_tickers_as_permanently_ineligible():
+    algo = AddSecurity(["c1", "c2"])
+
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=2)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+
+    s.update(dts[0])
+    s.perm["closed"] = {"c2"}
+    assert algo(s)
+    assert s.temp["selected"] == ["c1"]
+
+    s.update(dts[1])
+    s.perm["closed"] = set()
+    s.temp["selected"] = []
+    assert algo(s)
+    assert s.temp["selected"] == ["c1"]
+
+
+def test_select_sector_filters_candidate_pool_by_sector():
+    algo = SelectSector(["Tech"])
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=100.0)
+    sector_wide = pd.DataFrame(
+        index=dts,
+        data={"c1": ["Tech"], "c2": ["Energy"], "c3": ["Tech"]},
+    )
+    s.setup(data, sector_wide=sector_wide)
+    s.update(dts[0])
+    s.temp["selected"] = ["c2", "c1", "c3"]
+
+    assert algo(s)
+    assert s.temp["selected"] == ["c1", "c3"]
+
+
+def test_select_sector_uses_sector_wide_index_when_selected_missing():
+    algo = SelectSector(["Tech"])
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    sector_wide = pd.DataFrame(
+        index=dts,
+        data={"c1": ["Tech"], "c2": ["Energy"]},
+    )
+    s.setup(data, sector_wide=sector_wide)
+    s.update(dts[0])
+
+    assert algo(s)
+    assert s.temp["selected"] == ["c1"]
+
+
+def test_select_sector_returns_false_on_missing_or_invalid_sector_wide():
+    algo = SelectSector(["Tech"])
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+
+    assert not algo(s)
+
+    s = Strategy("s")
+    s.setup(data, sector_wide={"c1": "Tech"})
+    s.update(dts[0])
+    assert not algo(s)
+
+
+def test_select_sector_returns_false_when_now_not_in_sector_wide_index():
+    algo = SelectSector(["Tech"])
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=2)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    sector_wide = pd.DataFrame(
+        index=[dts[0]],
+        data={"c1": ["Tech"]},
+    )
+    s.setup(data, sector_wide=sector_wide)
+    s.update(dts[1])
+
+    assert not algo(s)
+
+
+def test_select_sector_accepts_sector_data_dataframe_in_init():
+    dts = pd.date_range("2010-01-01", periods=1)
+    sector_df = pd.DataFrame(
+        index=dts,
+        data={"c1": ["Tech"], "c2": ["Energy"]},
+    )
+    algo = SelectSector(["Tech"], sector_data=sector_df)
+    s = Strategy("s")
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = ["c2", "c1"]
+
+    assert algo(s)
+    assert s.temp["selected"] == ["c1"]
+
+
+def test_select_sector_accepts_custom_sector_key_string():
+    algo = SelectSector(["Tech"], sector_data="custom_sector_wide")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    custom_sector_wide = pd.DataFrame(
+        index=dts,
+        data={"c1": ["Tech"], "c2": ["Energy"]},
+    )
+    s.setup(data, custom_sector_wide=custom_sector_wide)
+    s.update(dts[0])
+
+    assert algo(s)
+    assert s.temp["selected"] == ["c1"]
+
+
+def test_select_sector_validates_sector_data_type():
+    with pytest.raises(TypeError, match="sector_data"):
+        SelectSector(["Tech"], sector_data=123)
+
+
+def test_select_sector_excludes_missing_sector_labels_in_row():
+    algo = SelectSector(["Tech"])
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    sector_wide = pd.DataFrame(
+        index=dts,
+        data={"c1": ["Tech"], "c2": [pd.NA]},
+    )
+    s.setup(data, sector_wide=sector_wide)
+    s.update(dts[0])
+    s.temp["selected"] = ["c1", "c2"]
+
+    assert algo(s)
+    assert s.temp["selected"] == ["c1"]
 
 
 def test_select_has_data():

@@ -3,12 +3,12 @@ from unittest import mock
 import pandas as pd
 
 from bt.utils.selection_utils import (
+    exclude_candidates_from_pool,
     filter_tickers_by_current_price,
     intersect_candidates_with_pool,
     resolve_candidate_pool_with_fallback,
     resolve_now_in_universe_or_none,
     resolve_selection_context,
-    signal_row_to_bool_mask,
 )
 
 
@@ -197,7 +197,7 @@ def test_intersect_candidates_with_pool_preserves_candidate_order():
     assert intersect_candidates_with_pool(candidates, pool) == ["c1", "c2"]
 
 
-def test_signal_row_to_bool_mask_handles_numeric_and_missing():
-    row = pd.Series([1, 0, pd.NA], index=["c1", "c2", "c3"])
-    mask = signal_row_to_bool_mask(row)
-    assert list(mask.index[mask]) == ["c1"]
+def test_exclude_candidates_from_pool_preserves_candidate_order():
+    candidates = ["c3", "c1", "c2", "c1"]
+    excluded = ["c1"]
+    assert exclude_candidates_from_pool(candidates, excluded) == ["c3", "c2"]

@@ -6,9 +6,6 @@ import pandas as pd
 from bt.utils.selection_utils import (
     filter_tickers_by_current_price,
     intersect_candidates_with_pool,
-    resolve_candidate_pool_with_fallback,
-    resolve_selection_context,
-    signal_row_to_bool_mask,
 )
 from utils.list_utils import normalize_string_list
 from .base_selection import SelectAll
@@ -56,16 +53,13 @@ class SelectThese(SelectAll):
 
     def __call__(self, target: Any) -> bool:
         """Write fixed-list filtered selection into ``target.temp['selected']``."""
-        context = resolve_selection_context(target)
-        if context is None:
-            return False
-        temp, universe, now = context
-
-        candidate_pool = resolve_candidate_pool_with_fallback(
-            temp, lambda: super(SelectThese, self).__call__(target)
+        resolved = self._resolve_context_and_candidate_pool(
+            target,
+            lambda: super(SelectThese, self).__call__(target),
         )
-        if candidate_pool is None:
+        if resolved is None:
             return False
+        temp, universe, now, candidate_pool = resolved
 
         available = intersect_candidates_with_pool(self.tickers, candidate_pool)
         temp["selected"] = filter_tickers_by_current_price(
@@ -122,37 +116,33 @@ class SelectWhere(SelectAll):
 
     def __call__(self, target: Any) -> bool:
         """Select signaled names and store them in ``target.temp['selected']``."""
-        context = resolve_selection_context(target)
-        if context is None:
-            return False
-        temp, universe, now = context
-
-        signal_df = (
-            self.signal
-            if self.signal_name is None
-            else target.get_data(self.signal_name)
+        resolved = self._resolve_context_and_candidate_pool(
+            target,
+            lambda: super(SelectWhere, self).__call__(target),
         )
-        if not isinstance(signal_df, pd.DataFrame):
-            raise TypeError("SelectWhere signal must resolve to a pandas DataFrame.")
-
-        if now not in signal_df.index:
+        if resolved is None:
             return False
+        temp, universe, now, candidate_pool = resolved
 
-        candidate_pool = resolve_candidate_pool_with_fallback(
-            temp, lambda: super(SelectWhere, self).__call__(target)
+        resolved_signal = self._resolve_wide_data_row_at_now(
+            now=now,
+            inline_wide=self.signal,
+            wide_key=self.signal_name,
+            key_resolver=lambda key: target.get_data(key),
         )
-        if candidate_pool is None:
+        if resolved_signal is None:
             return False
+        signal_df, signal_row = resolved_signal
 
         candidate_pool = intersect_candidates_with_pool(
-            list(signal_df.columns), candidate_pool
+            list(signal_row.index), candidate_pool
         )
         if not candidate_pool:
             temp["selected"] = []
             return True
 
-        row = signal_df.loc[now, candidate_pool]
-        mask = signal_row_to_bool_mask(row)
+        row = signal_row.loc[candidate_pool]
+        mask = self._signal_row_to_bool_mask(row)
         selected_names = list(mask[mask].index)
 
         temp["selected"] = filter_tickers_by_current_price(
