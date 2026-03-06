@@ -1,6 +1,7 @@
 from unittest import mock
 
 import pandas as pd
+import pytest
 
 from bt.core import Strategy, SecurityBase
 from bt.algos.portfolio_ops import Rebalance, RebalanceOverTime
@@ -212,3 +213,60 @@ def test_rebalance_over_time():
 
     assert algo(target)
     assert rb.call_count == 2
+
+
+def test_rebalance_rejects_invalid_weights_shape():
+    algo = Rebalance()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.adjust(1000)
+    s.update(dts[0])
+
+    s.temp["weights"] = ["c1"]  # invalid shape
+    assert not algo(s)
+
+
+def test_rebalance_accepts_series_weights():
+    algo = Rebalance()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.adjust(1000)
+    s.update(dts[0])
+
+    s.temp["weights"] = pd.Series({"c1": 1.0, "c2": None})
+    assert algo(s)
+    assert s["c1"].position == 10
+
+
+@pytest.mark.parametrize("cash", [-0.1, 1.1, "bad"])
+def test_rebalance_rejects_invalid_cash(cash):
+    algo = Rebalance()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.adjust(1000)
+    s.update(dts[0])
+
+    s.temp["weights"] = {"c1": 1.0}
+    s.temp["cash"] = cash
+    assert not algo(s)
+
+
+def test_rebalance_over_time_validates_n():
+    with pytest.raises(TypeError, match="`n`"):
+        RebalanceOverTime(n=1.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="`n` must be > 0"):
+        RebalanceOverTime(n=0)
+
+
+def test_rebalance_over_time_rejects_invalid_weights_shape():
+    algo = RebalanceOverTime(n=2)
+    target = mock.MagicMock()
+    target.temp = {"weights": ["a", "b"]}
+    target.children = {}
+    assert not algo(target)

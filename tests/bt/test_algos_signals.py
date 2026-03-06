@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from bt.core import Strategy
+from bt.algos.selection import SelectN
 from bt.algos.signals import (
     DualMACrossoverSignal,
     MomentumSignal,
@@ -77,16 +78,10 @@ def test_dual_ma_crossover_signal_returns_false_when_series_missing():
 
 
 def test_momentum_signal_validates_inputs():
-    with pytest.raises(TypeError, match="`n`"):
-        MomentumSignal(n=1.5)
-    with pytest.raises(ValueError, match="`n`"):
-        MomentumSignal(n=0)
-    with pytest.raises(TypeError, match="`lookback`"):
-        MomentumSignal(n=1, lookback=3)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="`lag`"):
-        MomentumSignal(n=1, lag=3)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="`sort_descending`"):
-        MomentumSignal(n=1, sort_descending=1)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="`ranking_algo`"):
+        MomentumSignal(ranking_algo=None)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="`total_return_key`"):
+        MomentumSignal(ranking_algo=SelectN(n=1), total_return_key=123)  # type: ignore[arg-type]
 
 
 def test_momentum_signal_selects_top_return_name():
@@ -101,7 +96,22 @@ def test_momentum_signal_selects_top_return_name():
     )
     s.setup(data)
     s.update(dts[-1])
+    s.temp["total_return"] = pd.Series({"c1": 0.06, "c2": -0.03})
 
-    algo = MomentumSignal(n=1, lookback=pd.DateOffset(days=3))
+    algo = MomentumSignal(
+        ranking_algo=SelectN(n=1, sort_descending=True, stat_key="total_return"),
+        total_return_key="total_return",
+    )
     assert algo(s)
     assert s.temp["selected"] == ["c1"]
+
+
+def test_momentum_signal_returns_false_without_total_return_series():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=2)
+    data = pd.DataFrame(index=dts, data={"c1": [100.0, 101.0]})
+    s.setup(data)
+    s.update(dts[-1])
+
+    algo = MomentumSignal(ranking_algo=SelectN(n=1, stat_key="total_return"))
+    assert not algo(s)

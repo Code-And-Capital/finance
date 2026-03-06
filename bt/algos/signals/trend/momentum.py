@@ -1,70 +1,78 @@
-from bt.algos.core import AlgoStack
-from bt.algos.selection.ranking import SelectN
-from bt.algos.factors import TotalReturn
+from __future__ import annotations
+
+from typing import Any
+
 import pandas as pd
-from utils.math_utils import validate_integer
+
+from bt.algos.core import Algo
+from bt.algos.signals.core import Signal
+from utils.list_utils import keep_items_in_pool
 
 
-class MomentumSignal(AlgoStack):
-    """Select top names by trailing total return.
+class MomentumSignal(Signal):
+    """Build a momentum signal from a precomputed return factor and rank selector.
 
-    Internally this is an ``AlgoStack``:
-    1. :class:`TotalReturn` computes returns into ``temp["total_return"]``
-    2. :class:`SelectN` selects top/bottom names from that metric
+    This signal expects a return cross-section to already exist in
+    ``temp[total_return_key]`` (for example from ``TotalReturn`` earlier in the
+    algo stack). It then delegates selection to the provided ranking algo and
+    converts that selected subset into a boolean signal over the candidate pool.
 
     Parameters
     ----------
-    n : int
-        Number of names to select. Must be a positive integer.
-    lookback : pandas.DateOffset, optional
-        Return lookback window used by ``TotalReturn``.
-    lag : pandas.DateOffset, optional
-        Lag applied by ``TotalReturn`` to avoid look-ahead.
-    sort_descending : bool, optional
-        If ``True`` (default), highest returns rank first.
+    ranking_algo : Algo
+        Ranking selector algo (e.g. ``SelectN``, ``SelectQuantile``,
+        ``SectorDoubleSort``) that reads from ``temp`` and writes selected names
+        into ``temp['selected']``.
+    total_return_key : str, optional
+        Temp key containing the return metric series. Defaults to
+        ``"total_return"``.
     """
 
     def __init__(
         self,
-        n: int,
-        lookback: pd.DateOffset = pd.DateOffset(months=3),
-        lag: pd.DateOffset = pd.DateOffset(days=0),
-        sort_descending: bool = True,
+        ranking_algo: Algo,
+        total_return_key: str = "total_return",
     ) -> None:
-        """Initialize momentum signal stack."""
-        n_val = int(validate_integer(n, "MomentumSignal `n`"))
-        if n_val <= 0:
-            raise ValueError("MomentumSignal `n` must be > 0.")
-        if not isinstance(lookback, pd.DateOffset):
-            raise TypeError("MomentumSignal `lookback` must be a pandas.DateOffset.")
-        if not isinstance(lag, pd.DateOffset):
-            raise TypeError("MomentumSignal `lag` must be a pandas.DateOffset.")
-        if not isinstance(sort_descending, bool):
-            raise TypeError("MomentumSignal `sort_descending` must be a bool.")
+        """Initialize momentum signal."""
+        super().__init__()
+        if not isinstance(ranking_algo, Algo):
+            raise TypeError("MomentumSignal `ranking_algo` must be an Algo instance.")
+        if not isinstance(total_return_key, str) or not total_return_key:
+            raise TypeError(
+                "MomentumSignal `total_return_key` must be a non-empty string."
+            )
 
-        super().__init__(
-            TotalReturn(lookback=lookback, lag=lag),
-            SelectN(
-                n=n_val,
-                sort_descending=sort_descending,
-                stat_key="total_return",
-            ),
-        )
+        self.ranking_algo = ranking_algo
+        self.total_return_key = total_return_key
 
-    def __call__(self, target) -> bool:
-        """Ensure candidate pool exists, then run momentum stack."""
-        context = self._resolve_temp_universe_now(target)
-        if context is None:
-            return False
-        temp, universe, _ = context
+    def _compute_signal(
+        self,
+        target: Any,
+        temp: dict[str, Any],
+        universe: pd.DataFrame,
+        now: pd.Timestamp,
+        candidate_pool: list[Any],
+    ) -> pd.Series | None:
+        """Run ranking selector and return boolean mask over ``candidate_pool``."""
+        total_return = temp.get(self.total_return_key)
+        if not isinstance(total_return, pd.Series):
+            return None
 
-        selected = self._resolve_candidate_pool_with_fallback(
-            temp,
-            lambda: temp.__setitem__("selected", list(universe.columns)) or True,
-            allowed_candidates=list(universe.columns),
-        )
-        if selected is None:
-            return False
-        temp["selected"] = selected
+        temp["selected"] = list(candidate_pool)
 
-        return super().__call__(target)
+        # Ensure ranking algos that default to `stat` consume total return.
+        if "stat" not in temp:
+            temp["stat"] = total_return
+
+        if not self.ranking_algo(target):
+            return None
+
+        ranked_selected_raw = temp.get("selected", [])
+        if not isinstance(ranked_selected_raw, list):
+            return None
+        ranked_selected = keep_items_in_pool(candidate_pool, ranked_selected_raw)
+
+        mask = pd.Series(False, index=candidate_pool, dtype=bool)
+        if ranked_selected:
+            mask.loc[ranked_selected] = True
+        return mask

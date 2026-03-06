@@ -1,22 +1,22 @@
 from bt.algos.core import Algo
 import numpy as np
+import pandas as pd
+from utils.math_utils import validate_integer
 
 
 class Rebalance(Algo):
-    """
-    Rebalances capital according to temp['weights'].
+    """Rebalance strategy positions to target weights.
 
-    This algorithm allocates capital based on temp['weights'] and closes
-    positions that are open but not in the target weights. It is typically
-    the last algorithm called after all selection and weighting algos
-    have been applied.
+    This algo applies ``temp["weights"]`` to the strategy, closes open
+    positions not present in the target mapping, and then calls
+    ``target.rebalance(...)`` for each target weight.
 
-    Requires:
-        temp['weights']: dict of target weights per security
-        temp['cash'] (optional): float between 0-1 specifying fraction
-            of capital to hold as cash. Default is 0 (fully invested).
-        temp['notional_value'] (optional): for fixed-income portfolios,
-            base notional value for weighting calculations.
+    Notes
+    -----
+    - This implementation is equity-only and does not include fixed-income
+      notional branches.
+    - Optional ``temp["cash"]`` reserves a fraction of portfolio value from
+      allocation (for example, ``cash=0.2`` keeps 20% unallocated).
     """
 
     def __init__(self) -> None:
@@ -26,144 +26,125 @@ class Rebalance(Algo):
         super().__init__()
 
     def __call__(self, target) -> bool:
-        """
-        Rebalance capital and close positions not in target weights.
+        """Execute one full rebalance step.
 
-        Parameters:
-            target: Strategy/backtest object providing:
-                - children: dict of child nodes (securities)
-                - temp: dict of temporary variables (weights, cash, etc.)
-                - fixed_income: bool, indicates fixed-income portfolio
-                - value: total equity
-                - notional_value: total notional value for fixed-income
-                - close(child_name, update=False): method to close positions
-                - rebalance(weight, child=child_name, base=base, update=False): method to allocate
-                - root.update(now): method to propagate updates
-                - now: current date
-
-        Returns:
-            bool: Always True
+        Returns
+        -------
+        bool
+            ``True`` on successful execution. Returns ``False`` only when
+            required input shapes are malformed (for example non-dict weights
+            or invalid cash fraction).
         """
-        if "weights" not in target.temp:
+        temp = self._resolve_temp(target)
+        if temp is None:
+            return False
+
+        if "weights" not in temp:
             return True
 
-        targets = target.temp["weights"]
-
-        # Determine base for allocations
-        if target.fixed_income:
-            base = target.temp.get("notional_value", target.notional_value)
+        raw_targets = temp["weights"]
+        if isinstance(raw_targets, pd.Series):
+            targets = raw_targets.dropna().to_dict()
+        elif isinstance(raw_targets, dict):
+            targets = raw_targets
         else:
-            base = target.value
+            return False
 
-        # Close children that are not in target weights and have non-zero value
+        base = target.value
+
+        cash_fraction_raw = temp.get("cash", 0.0)
+        try:
+            cash_fraction = float(cash_fraction_raw)
+        except (TypeError, ValueError):
+            return False
+        if cash_fraction < 0.0 or cash_fraction > 1.0:
+            return False
+        base *= 1.0 - cash_fraction
+
+        # Close children not present in target mapping.
         for cname, child in target.children.items():
             if cname in targets:
                 continue
 
-            v = child.notional_value if target.fixed_income else child.value
+            v = child.value
             if v != 0.0 and not np.isnan(v):
                 target.close(cname, update=False)
 
-        # Adjust base for cash allocation if applicable
-        if "cash" in target.temp and not target.fixed_income:
-            base *= 1 - target.temp["cash"]
-
-        # Allocate according to target weights
+        # Apply target allocations.
         for child_name, weight in targets.items():
             target.rebalance(weight, child=child_name, base=base, update=False)
 
-        # Update after rebalancing
+        # Propagate tree state once after all child operations.
         target.root.update(target.now)
 
         return True
 
 
 class RebalanceOverTime(Algo):
-    """
-    Gradually rebalance the portfolio toward a new target weight vector over
-    multiple periods.
+    """Apply target weights gradually over ``n`` calls.
 
-    This Algo smooths rebalancing by dividing the weight adjustment into `n`
-    equal steps applied over consecutive periods. This is useful when the
-    strategy's raw weight changes are large, and a full instantaneous rebalance
-    would be unrealistic. For example, in monthly strategies the rebalance may
-    be spread across several trading days.
-
-    When a new `temp['weights']` dictionary is provided, the Algo initializes a
-    multi-period schedule and applies one portion of the weight change at each
-    call. Once all steps are completed, the schedule resets.
-
-    In typical monthly strategies, this usually requires the `run_always`
-    decorator, because many RunPeriod algos return `False` after the first
-    day of the period.
-
-    Requires:
-        * weights: A dictionary of {security: target_weight} that will trigger
-          the start of a new multi-period rebalance sequence.
-
-    Parameters:
-        * n (int): Number of periods over which to apply the rebalance.
-
-    Returns:
-        * bool: Always returns True.
+    When ``temp["weights"]`` is present, the algo snapshots it as a destination
+    and applies linear partial moves from current weights to destination over
+    ``n`` steps. Each step delegates execution to :class:`Rebalance`.
     """
 
     def __init__(self, n: int = 10):
-        """
-        Initialize a RebalanceOverTime instance.
-
-        Parameters:
-            * n (int): Number of periods over which the rebalance is applied.
-              Larger values smooth the adjustment over more periods.
-        """
+        """Initialize the multi-step rebalance scheduler."""
         super().__init__()
-        self.n = float(n)
+        n_steps = int(validate_integer(n, "RebalanceOverTime `n`"))
+        if n_steps <= 0:
+            raise ValueError("RebalanceOverTime `n` must be > 0.")
+
+        self.n = n_steps
         self._rb = Rebalance()
+        self._weights: dict | None = None
+        self._days_left: int | None = None
+
+    def _start_schedule(self, raw_weights) -> bool:
+        """Start a new schedule from provided destination weights."""
+        if isinstance(raw_weights, pd.Series):
+            self._weights = raw_weights.dropna().to_dict()
+        elif isinstance(raw_weights, dict):
+            self._weights = raw_weights
+        else:
+            return False
+        self._days_left = self.n
+        return True
+
+    def _clear_schedule(self) -> None:
+        """Clear any active schedule state."""
         self._weights = None
         self._days_left = None
 
     def __call__(self, target):
-        """
-        Execute one step of the multi-period rebalance.
+        """Run one schedule step (or initialize schedule from new weights)."""
+        temp = self._resolve_temp(target)
+        if temp is None:
+            return False
 
-        Behavior:
-            * If new weights are present in temp['weights'], initialize a new
-              rebalance schedule over `n` future periods.
-            * On each call, compute the partial progress toward the target
-              weights and apply it via the standard Rebalance Algo.
-            * After `n` steps, reset all internal state.
+        if "weights" in temp:
+            if not self._start_schedule(temp["weights"]):
+                return False
 
-        Parameters:
-            * target: The AlgoTarget on which the rebalance is executed.
-
-        Returns:
-            * bool: Always returns True.
-        """
-        # New weights trigger a new rebalance schedule.
-        if "weights" in target.temp:
-            self._weights = target.temp["weights"]
-            self._days_left = self.n
-
-        # Continue scheduled rebalancing if active.
         if self._weights is not None:
-            tgt = {}
+            if self._days_left is None or self._days_left <= 0:
+                self._clear_schedule()
+                return True
 
-            for cname in self._weights.keys():
-                curr = (
+            tgt: dict[str, float] = {}
+            for cname, target_weight in self._weights.items():
+                current_weight = (
                     target.children[cname].weight if cname in target.children else 0.0
                 )
-                dlt = (self._weights[cname] - curr) / self._days_left
-                tgt[cname] = curr + dlt
+                delta = (target_weight - current_weight) / self._days_left
+                tgt[cname] = current_weight + delta
 
-            # Inject temporary weights and rebalance one step.
-            target.temp["weights"] = tgt
-            self._rb(target)
+            temp["weights"] = tgt
+            if not self._rb(target):
+                return False
 
-            # Update schedule state.
             self._days_left -= 1
-
-            if self._days_left == 0:
-                self._days_left = None
-                self._weights = None
+            if self._days_left <= 0:
+                self._clear_schedule()
 
         return True
