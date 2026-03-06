@@ -21,6 +21,7 @@ def test_algo_name():
 
     actual = TestAlgo()
     assert actual.name == "TestAlgo"
+    assert actual.run_always is False
 
 
 def test_algo_context_helpers():
@@ -59,6 +60,38 @@ def test_algo_stack():
     assert not actual
     assert algo1.called
     assert algo2.called
+    assert not algo3.called
+
+
+def test_algo_stack_runs_marked_algos_after_failure():
+    algo1 = DummyAlgo(return_value=False)
+    algo2 = DummyAlgo(return_value=True)
+    algo2.run_always = True
+    algo3 = DummyAlgo(return_value=True)
+
+    target = mock.MagicMock()
+    stack = AlgoStack(algo1, algo2, algo3)
+
+    actual = stack(target)
+    assert not actual
+    assert algo1.called
+    assert algo2.called
+    assert not algo3.called
+
+
+def test_algo_stack_does_not_run_unmarked_algos_after_failure():
+    algo1 = DummyAlgo(return_value=False)
+    algo2 = DummyAlgo(return_value=True)
+    algo2.run_always = False
+    algo3 = DummyAlgo(return_value=True)
+
+    target = mock.MagicMock()
+    stack = AlgoStack(algo1, algo2, algo3)
+
+    actual = stack(target)
+    assert not actual
+    assert algo1.called
+    assert not algo2.called
     assert not algo3.called
 
 
@@ -115,6 +148,21 @@ def test_filter_tickers_by_current_price_include_negative_keeps_non_null():
         include_negative=True,
     )
     assert actual == ["c1", "c2"]
+
+
+def test_filter_tickers_by_current_price_returns_empty_on_invalid_loc():
+    algo = _HelperAlgo()
+    dts = pd.date_range("2026-01-01", periods=1)
+    universe = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+
+    actual = algo._filter_tickers_by_current_price(
+        universe=universe,
+        now="not-a-date",  # invalid indexer
+        tickers=["c1"],
+        include_no_data=False,
+        include_negative=False,
+    )
+    assert actual == []
 
 
 def test_resolve_candidate_pool_with_fallback_uses_existing_selected():

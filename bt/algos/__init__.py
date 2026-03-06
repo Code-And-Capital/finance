@@ -1,11 +1,10 @@
 """Top-level exports for algorithm components."""
 
-from .core import Algo, AlgoStack, run_always
+from .core import Algo, AlgoStack
 
 __all__ = [
     "Algo",
     "AlgoStack",
-    "run_always",
     # Subpackages are intentionally not imported here to avoid circular imports.
     "capital",
     "debugging",

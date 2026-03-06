@@ -5,22 +5,28 @@ from typing import Any
 from .algo import Algo
 
 
-def run_always(func):
-    """Decorator to force an algo to run even after prior stack failures."""
-    func.run_always = True
-    return func
-
-
 class AlgoStack(Algo):
-    """Run multiple algos sequentially until a failure is encountered."""
+    """Execute multiple algos in sequence with short-circuit semantics.
+
+    Normal mode:
+    - Stop at first ``False`` and return ``False``.
+
+    ``run_always`` mode:
+    - If any algo in the stack has ``run_always=True``, evaluation still tracks
+      the first failure for the returned result, but algos flagged with
+      ``run_always`` continue to execute after a prior failure.
+    """
 
     def __init__(self, *algos: Algo) -> None:
+        """Initialize stack with ordered algo callables."""
         super().__init__()
         self.algos = algos
-        self.check_run_always = any(hasattr(algo, "run_always") for algo in self.algos)
+        self.check_run_always = any(
+            bool(getattr(algo, "run_always", False)) for algo in self.algos
+        )
 
     def __call__(self, target: Any) -> bool:
-        """Execute stack members on ``target`` in order."""
+        """Run stack members against ``target`` and return aggregate success."""
         if not self.check_run_always:
             return all(algo(target) for algo in self.algos)
 
@@ -28,6 +34,6 @@ class AlgoStack(Algo):
         for algo in self.algos:
             if res:
                 res = algo(target)
-            elif getattr(algo, "run_always", False):
+            elif bool(getattr(algo, "run_always", False)):
                 algo(target)
         return res

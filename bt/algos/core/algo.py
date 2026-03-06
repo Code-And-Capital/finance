@@ -10,14 +10,20 @@ from utils.list_utils import keep_items_in_pool, normalize_to_list
 
 
 class Algo:
-    """Base class for strategy algos.
+    """Base class for all composable strategy algos.
 
-    Algos are callable units that receive a target (typically a strategy)
-    and return a boolean result.
+    An algo is a callable unit that receives a target object (typically a
+    strategy) and returns ``True`` or ``False`` to indicate success / whether a
+    condition was met. This class provides common helper methods for:
+    - target context resolution (``temp``, ``universe``, ``now``)
+    - wide-data row resolution at a timestamp
+    - candidate-pool resolution via ``temp['selected']`` with fallback behavior
+    - lightweight ticker filtering by current-row availability/sign
     """
 
     def __init__(self, name: str | None = None) -> None:
         self._name = name
+        self.run_always = False
 
     @property
     def name(self) -> str:
@@ -27,7 +33,10 @@ class Algo:
         return self._name
 
     def __call__(self, target: Any) -> bool:
-        """Execute algo logic on the target."""
+        """Execute algo logic on ``target``.
+
+        Subclasses must implement this method.
+        """
         raise NotImplementedError(f"{self.name} not implemented!")
 
     def _resolve_temp(self, target: Any) -> dict[str, Any] | None:
@@ -48,6 +57,16 @@ class Algo:
             return None
         return coerce_timestamp_or_none(raw_now)
 
+    def _resolve_universe(self, target: Any) -> pd.DataFrame | None:
+        """Return ``target.universe`` when available and DataFrame-like."""
+        try:
+            universe = getattr(target, "universe", None)
+        except Exception:
+            return None
+        if not isinstance(universe, pd.DataFrame):
+            return None
+        return universe
+
     def _resolve_now_in_universe_or_none(
         self, target: Any, universe: pd.DataFrame
     ) -> pd.Timestamp | None:
@@ -63,18 +82,13 @@ class Algo:
         self,
         target: Any,
     ) -> tuple[dict[str, Any], pd.DataFrame, pd.Timestamp] | None:
-        """Resolve ``temp``, ``universe``, and ``now`` for algo execution."""
+        """Resolve ``(temp, universe, now)`` for typical algo execution."""
         temp = self._resolve_temp(target)
-        now = self._resolve_now(target)
-        if temp is None or now is None:
+        universe = self._resolve_universe(target)
+        if temp is None or universe is None:
             return None
-        try:
-            universe = getattr(target, "universe", None)
-        except Exception:
-            return None
-        if not isinstance(universe, pd.DataFrame):
-            return None
-        if now not in universe.index:
+        now = self._resolve_now_in_universe_or_none(target, universe)
+        if now is None:
             return None
         return temp, universe, now
 
@@ -92,7 +106,11 @@ class Algo:
         wide_key: str | None,
         key_resolver: Callable[[str], Any],
     ) -> tuple[pd.DataFrame, pd.Series] | None:
-        """Resolve wide DataFrame source and return row at ``now``."""
+        """Resolve wide-data source and return the row at ``now``.
+
+        Returns ``None`` when source resolution fails, ``now`` is not present
+        in the index, or the resolved row is not a Series.
+        """
         wide_df = self._resolve_wide_data_frame(
             inline_wide=inline_wide,
             wide_key=wide_key,
@@ -137,11 +155,29 @@ class Algo:
         include_no_data: bool,
         include_negative: bool,
     ) -> list[str]:
-        """Filter candidate tickers by current-row availability and sign constraints."""
+        """Filter candidate tickers by current-row availability/sign constraints.
+
+        Parameters
+        ----------
+        universe
+            Wide price DataFrame with timestamp index and ticker columns.
+        now
+            Evaluation timestamp expected in ``universe.index``.
+        tickers
+            Candidate tickers to evaluate.
+        include_no_data
+            If ``True``, return ``tickers`` unchanged.
+        include_negative
+            If ``True``, keep all non-null prices (including non-positive);
+            otherwise keep only strictly positive prices.
+        """
         if include_no_data:
             return tickers
 
-        row = universe.loc[now, tickers].dropna()
+        try:
+            row = universe.loc[now, tickers].dropna()
+        except (TypeError, KeyError, ValueError):
+            return []
         if include_negative:
             return list(row.index)
         return list(row[row > 0].index)
@@ -152,7 +188,15 @@ class Algo:
         fallback_selector: Callable[[], bool],
         allowed_candidates: list[Any] | None = None,
     ) -> list[Any] | None:
-        """Return ``temp['selected']`` or populate it using fallback selector."""
+        """Return resolved candidate pool from ``temp['selected']``.
+
+        Resolution rules:
+        1. Read ``temp['selected']`` and normalize to list.
+        2. If missing/empty, run ``fallback_selector`` and retry.
+        3. Optionally intersect with ``allowed_candidates`` preserving order.
+
+        Returns ``None`` when normalization fails or fallback fails.
+        """
         try:
             candidate_pool = normalize_to_list(temp.get("selected"))
         except TypeError:

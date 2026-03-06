@@ -91,6 +91,7 @@ class RebalanceOverTime(Algo):
     def __init__(self, n: int = 10):
         """Initialize the multi-step rebalance scheduler."""
         super().__init__()
+        self.run_always = True
         n_steps = int(validate_integer(n, "RebalanceOverTime `n`"))
         if n_steps <= 0:
             raise ValueError("RebalanceOverTime `n` must be > 0.")
