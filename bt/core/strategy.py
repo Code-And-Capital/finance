@@ -393,6 +393,7 @@ class StrategyBase(Node):
                 inow = 0
             else:
                 inow = self.data.index.get_loc(date)
+        index_label = self.data.index[inow]
 
         # Calculate aggregate values by updating children
         val = getattr(self, "_capital", 0.0)  # default if no children
@@ -440,14 +441,17 @@ class StrategyBase(Node):
             or (not is_zero(self._notl_value - notl_val))
         ):
             self._value = val
-            self._values.values[inow] = val
+            self.data.at[index_label, "value"] = val
+            self._values.iat[inow] = val
 
             self._notl_value = notl_val
-            self._notl_values.values[inow] = notl_val
+            self.data.at[index_label, "notional_value"] = notl_val
+            self._notl_values.iat[inow] = notl_val
 
             if self._bidoffer_set:
                 self._bidoffer_paid = bidoffer_paid
-                self._bidoffers_paid.values[inow] = bidoffer_paid
+                self.data.at[index_label, "bidoffer_paid"] = bidoffer_paid
+                self._bidoffers_paid.iat[inow] = bidoffer_paid
 
             if getattr(self, "fixed_income", False):
                 # For fixed-income strategies compute additive return on notional
@@ -466,7 +470,8 @@ class StrategyBase(Node):
                             % (self.name, self.now, self._last_notl_value, pnl)
                         )
                 self._price = self._last_price + ret
-                self._prices.values[inow] = self._price
+                self.data.at[index_label, "price"] = self._price
+                self._prices.iat[inow] = self._price
             else:
                 bottom = self._last_value + self._net_flows
                 if not is_zero(bottom):
@@ -486,7 +491,8 @@ class StrategyBase(Node):
                             )
                         )
                 self._price = self._last_price * (1.0 + ret)
-                self._prices.values[inow] = self._price
+                self.data.at[index_label, "price"] = self._price
+                self._prices.iat[inow] = self._price
 
         # Update child weights based on new totals
         if self.children:
@@ -509,9 +515,12 @@ class StrategyBase(Node):
                 self._universe.loc[date, c] = self.children[c].price
 
         # Always update cash, fees, and flows for the date
-        self._cash.values[inow] = self._capital
-        self._fees.values[inow] = self._last_fee
-        self._all_flows.values[inow] = self._net_flows
+        self.data.at[index_label, "cash"] = self._capital
+        self.data.at[index_label, "fees"] = self._last_fee
+        self.data.at[index_label, "flows"] = self._net_flows
+        self._cash.iat[inow] = self._capital
+        self._fees.iat[inow] = self._last_fee
+        self._all_flows.iat[inow] = self._net_flows
 
         # Update paper trade copy if enabled
         if self._paper_trade:
@@ -521,7 +530,8 @@ class StrategyBase(Node):
                 self._paper.update(date)
             # sync price with paper simulation
             self._price = self._paper.price
-            self._prices.values[inow] = self._price
+            self.data.at[index_label, "price"] = self._price
+            self._prices.iat[inow] = self._price
 
     def adjust(
         self, amount: float, update: bool = True, flow: bool = True, fee: float = 0.0

@@ -17,7 +17,9 @@ def convert_columns_to_numeric(df: pd.DataFrame) -> pd.DataFrame:
 
 def df_to_dict(df: pd.DataFrame, key_col, value_col) -> dict:
     """Convert two columns of a DataFrame into a dictionary."""
-    return df.set_index(key_col)[value_col].to_dict()
+    keys = df[key_col]
+    values = df[value_col]
+    return {(None if pd.isna(key) else key): value for key, value in zip(keys, values)}
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:

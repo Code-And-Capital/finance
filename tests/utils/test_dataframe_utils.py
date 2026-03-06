@@ -50,7 +50,7 @@ def test_mixed_numeric_and_non_numeric_values():
     )
     result = convert_columns_to_numeric(df.copy())
 
-    assert result["A"].dtype == object
+    assert pd.api.types.is_string_dtype(result["A"])
     assert result["A"].equals(df["A"])
 
 
@@ -61,7 +61,7 @@ def test_numeric_with_commas_not_convertible():
     result = convert_columns_to_numeric(df.copy())
 
     assert result["A"].tolist() == ["1,000", "2,000"]
-    assert result["A"].dtype == object
+    assert pd.api.types.is_string_dtype(result["A"])
 
 
 def test_column_with_none_values():

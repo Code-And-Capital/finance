@@ -257,7 +257,7 @@ class YahooDataClient:
             df = pd.DataFrame([info])
             # Normalize all missing-value representations consistently without
             # using replace/fillna paths that trigger pandas downcasting warnings.
-            object_columns = df.select_dtypes(include=["object"]).columns
+            object_columns = df.select_dtypes(include=["object", "string"]).columns
             for column in object_columns:
                 text = df[column].astype("string").str.strip().str.lower()
                 missing_mask = text.isin({"nan", "none", ""})

@@ -36,6 +36,82 @@ def test_weight_equally():
     assert weights["c2"] == 0.5
 
 
+def test_weight_equally_uses_set_and_solve_problem():
+    algo = WeighEqually()
+    algo.set_problem(["c1", "c2", "c3"])
+    algo.solve_problem()
+    assert algo.allocations == {
+        "c1": pytest.approx(1 / 3),
+        "c2": pytest.approx(1 / 3),
+        "c3": pytest.approx(1 / 3),
+    }
+
+
+def test_weight_equally_empty_selected_produces_empty_weights():
+    algo = WeighEqually()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = []
+
+    assert algo(s)
+    assert s.temp["weights"] == {}
+
+
+def test_weight_equally_deduplicates_selected_names():
+    algo = WeighEqually()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = ["c1", "c1", "c2"]
+
+    assert algo(s)
+    assert s.temp["weights"] == {"c1": 0.5, "c2": 0.5}
+
+
+def test_weight_equally_returns_false_for_non_list_selected():
+    algo = WeighEqually()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = "c1"
+
+    assert not algo(s)
+
+
+def test_weight_equally_returns_false_when_temp_missing():
+    algo = WeighEqually()
+    target = mock.MagicMock(spec=[])
+    assert not algo(target)
+
+
+def test_weight_equally_records_allocation_history_with_loc():
+    algo = WeighEqually()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=2)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = ["c1", "c2"]
+
+    assert algo(s)
+    assert dts[0] in algo.allocation_history.index
+    assert algo.allocation_history.loc[dts[0], "c1"] == pytest.approx(0.5)
+    assert algo.allocation_history.loc[dts[0], "c2"] == pytest.approx(0.5)
+
+    s.update(dts[1])
+    s.temp["selected"] = ["c1"]
+    assert algo(s)
+    assert dts[1] in algo.allocation_history.index
+    assert algo.allocation_history.loc[dts[1], "c1"] == pytest.approx(1.0)
+
+
 def test_weight_specified():
     algo = WeighSpecified(c1=0.6, c2=0.4)
     s = Strategy("s")

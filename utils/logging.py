@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from typing import Final
 
-
 _LEVEL_MAP: Final[dict[str, int]] = {
     "debug": logging.DEBUG,
     "info": logging.INFO,

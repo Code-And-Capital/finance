@@ -7,15 +7,13 @@ from sql.script_factory import SQLClient
 def test_render_sql_query_replaces_all_placeholders(tmp_path: Path):
     client = SQLClient()
     sql_file = tmp_path / "query.sql"
-    sql_file.write_text(
-        """
+    sql_file.write_text("""
         SELECT *
         FROM company_info
         WHERE 1=1
         {ticker_filter}
         {date_filter}
-        """
-    )
+        """)
 
     result = client.render_sql_query(
         query_path=sql_file,
@@ -35,14 +33,12 @@ def test_render_sql_query_replaces_all_placeholders(tmp_path: Path):
 def test_render_sql_query_ignores_extra_filters(tmp_path: Path):
     client = SQLClient()
     sql_file = tmp_path / "query.sql"
-    sql_file.write_text(
-        """
+    sql_file.write_text("""
         SELECT *
         FROM LLM
         WHERE 1=1
         {llm_filter}
-        """
-    )
+        """)
 
     result = client.render_sql_query(
         query_path=sql_file,
@@ -59,15 +55,13 @@ def test_render_sql_query_ignores_extra_filters(tmp_path: Path):
 def test_render_sql_query_missing_filter_raises_value_error(tmp_path: Path):
     client = SQLClient()
     sql_file = tmp_path / "query.sql"
-    sql_file.write_text(
-        """
+    sql_file.write_text("""
         SELECT *
         FROM company_info
         WHERE 1=1
         {ticker_filter}
         {date_filter}
-        """
-    )
+        """)
 
     with pytest.raises(ValueError) as exc:
         client.render_sql_query(
@@ -114,14 +108,12 @@ def test_render_sql_query_file_not_found():
 def test_render_sql_query_complex_placeholder_names(tmp_path: Path):
     client = SQLClient()
     sql_file = tmp_path / "query.sql"
-    sql_file.write_text(
-        """
+    sql_file.write_text("""
         SELECT *
         FROM data
         WHERE 1=1
         {index_filter_1}
-        """
-    )
+        """)
 
     result = client.render_sql_query(
         query_path=sql_file,

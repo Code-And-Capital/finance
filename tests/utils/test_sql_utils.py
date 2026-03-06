@@ -85,7 +85,7 @@ def test_non_numeric_columns_remain_strings():
 
     result = source.read_sql_table(table_name="tbl_str")
     assert result["A"].dtype == float
-    assert result["B"].dtype == object
+    assert pd.api.types.is_string_dtype(result["B"])
     assert result.iloc[0]["B"] == "foo"
 
 

@@ -205,19 +205,22 @@ class SecurityBase(Node):
 
         if inow is None:
             inow = 0 if date == 0 else self.data.index.get_loc(date)
+        index_label = self.data.index[inow]
 
         if date != self.now:
             self.now = date
             if self._prices_set:
-                self._price = self._prices.values[inow]
+                self._price = self._prices.iat[inow]
             elif data is not None:
                 self._price = data[self.name]
-                self._prices.values[inow] = self._price
+                self.data.at[index_label, "price"] = self._price
+                self._prices.iat[inow] = self._price
             if self._bidoffer_set:
-                self._bidoffer = self._bidoffers.values[inow]
+                self._bidoffer = self._bidoffers.iat[inow]
                 self._bidoffer_paid = 0.0
 
-        self._positions.values[inow] = self._position
+        self.data.at[index_label, "position"] = self._position
+        self._positions.iat[inow] = self._position
         self._last_pos = self._position
 
         if np.isnan(self._price):
@@ -231,18 +234,22 @@ class SecurityBase(Node):
             self._value = self._position * self._price * self.multiplier
 
         self._notl_value = self._value
-        self._values.values[inow] = self._value
-        self._notl_values.values[inow] = self._notl_value
+        self.data.at[index_label, "value"] = self._value
+        self.data.at[index_label, "notional_value"] = self._notl_value
+        self._values.iat[inow] = self._value
+        self._notl_values.iat[inow] = self._notl_value
 
         if is_zero(self._weight) and is_zero(self._position):
             self._needupdate = False
 
         if self._outlay != 0:
-            self._outlays.values[inow] += self._outlay
+            self.data.at[index_label, "outlay"] += self._outlay
+            self._outlays.iat[inow] += self._outlay
             self._outlay = 0
 
         if self._bidoffer_set:
-            self._bidoffers_paid.values[inow] = self._bidoffer_paid
+            self.data.at[index_label, "bidoffer_paid"] = self._bidoffer_paid
+            self._bidoffers_paid.iat[inow] = self._bidoffer_paid
 
     def allocate(self, amount: float, update: bool = True) -> None:
         """
@@ -488,10 +495,14 @@ class FixedIncomeSecurity(SecurityBase):
 
         # Call base class update
         super().update(date, data, inow)
+        if inow is None:
+            inow = 0 if date == 0 else self.data.index.get_loc(date)
+        index_label = self.data.index[inow]
 
         # Fixed income: notional value = position size
         self._notl_value = self._position
-        self._notl_values.values[inow] = self._notl_value
+        self.data.at[index_label, "notional_value"] = self._notl_value
+        self._notl_values.iat[inow] = self._notl_value
 
 
 class HedgeSecurity(SecurityBase):
@@ -532,7 +543,8 @@ class HedgeSecurity(SecurityBase):
 
         # Hedge: notional value is always zero
         self._notl_value = 0.0
-        self._notl_values.values.fill(0.0)
+        self._notl_values.loc[:] = 0.0
+        self.data.loc[:, "notional_value"] = 0.0
 
 
 class CouponPayingSecurity(FixedIncomeSecurity):
@@ -627,6 +639,7 @@ class CouponPayingSecurity(FixedIncomeSecurity):
         """
         if inow is None:
             inow = 0 if date == 0 else self.data.index.get_loc(date)
+        index_label = self.data.index[inow]
 
         if self._coupons is None:
             raise ValueError(f"Coupons not set for security {self.name}.")
@@ -634,23 +647,25 @@ class CouponPayingSecurity(FixedIncomeSecurity):
         # Standard price/value update
         super().update(date, data, inow)
 
-        coupon_value = self._coupons.values[inow]
+        coupon_value = self._coupons.iat[inow]
         if np.isnan(coupon_value):
             self._coupon = 0.0 if is_zero(self._position) else np.nan
         else:
             self._coupon = self._position * coupon_value
 
         if self._position > 0 and self._cost_long is not None:
-            self._holding_cost = self._position * self._cost_long.values[inow]
+            self._holding_cost = self._position * self._cost_long.iat[inow]
         elif self._position < 0 and self._cost_short is not None:
-            self._holding_cost = -self._position * self._cost_short.values[inow]
+            self._holding_cost = -self._position * self._cost_short.iat[inow]
         else:
             self._holding_cost = 0.0
 
         # Adjust capital
         self._capital = self._coupon - self._holding_cost
-        self._coupon_income.values[inow] = self._coupon
-        self._holding_costs.values[inow] = self._holding_cost
+        self.data.at[index_label, "coupon"] = self._coupon
+        self.data.at[index_label, "holding_cost"] = self._holding_cost
+        self._coupon_income.iat[inow] = self._coupon
+        self._holding_costs.iat[inow] = self._holding_cost
 
     @property
     def coupon(self) -> float:
@@ -707,4 +722,5 @@ class CouponPayingHedgeSecurity(CouponPayingSecurity):
 
         # Hedge securities have zero notional value
         self._notl_value = 0.0
-        self._notl_values.values.fill(0.0)
+        self._notl_values.loc[:] = 0.0
+        self.data.loc[:, "notional_value"] = 0.0

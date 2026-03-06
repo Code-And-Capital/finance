@@ -18,7 +18,6 @@ from visualization.charts import (
     Waterfall,
 )
 
-
 # -------------------------------
 # Fixtures
 # -------------------------------
