@@ -8,6 +8,7 @@ from bt.core import Strategy
 from bt.algos.weighting.core import WeightAlgo
 from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 from bt.algos.weighting import (
+    WeightCurrent,
     WeightEqually,
     WeightFixed,
     ScaleWeights,
@@ -120,6 +121,148 @@ def test_weight_equally_returns_false_for_non_list_selected():
     assert not algo(s)
 
 
+def test_weight_current_requires_callable_first_weight_algo():
+    with pytest.raises(TypeError, match="first_weight_algo"):
+        WeightCurrent(first_weight_algo="not-callable")
+
+
+def test_weight_current_runs_first_algo_once_then_uses_child_weights():
+    first_algo = mock.Mock(
+        side_effect=lambda target: target.temp.__setitem__("weights", {"c1": 1.0})
+        or True
+    )
+    algo = WeightCurrent(first_weight_algo=first_algo)
+
+    class _Target:
+        pass
+
+    target = _Target()
+    target.temp = {"selected": ["c1", "c3"]}
+    target.now = pd.Timestamp("2020-01-01")
+    target.children = {}
+
+    assert algo(target)
+    assert first_algo.call_count == 1
+    assert target.temp["weights"] == {"c1": 1.0}
+    assert target.now in algo.allocation_history.index
+    assert algo.allocation_history.loc[target.now, "c1"] == pytest.approx(1.0)
+
+    target.now = pd.Timestamp("2020-01-02")
+    target.children = {
+        "c1": mock.Mock(weight=0.25),
+        "c2": mock.Mock(weight=0.0),
+        "c3": mock.Mock(weight=-0.10),
+    }
+    assert algo(target)
+    assert first_algo.call_count == 1
+    assert set(target.temp["weights"]) == {"c1", "c3"}
+    assert sum(target.temp["weights"].values()) == pytest.approx(1.0)
+    assert target.temp["weights"]["c1"] == pytest.approx(1.6666666666666667)
+    assert target.temp["weights"]["c3"] == pytest.approx(-0.6666666666666666)
+    assert target.now in algo.allocation_history.index
+    assert algo.allocation_history.loc[target.now, "c1"] == pytest.approx(
+        target.temp["weights"]["c1"]
+    )
+    assert algo.allocation_history.loc[target.now, "c3"] == pytest.approx(
+        target.temp["weights"]["c3"]
+    )
+
+
+def test_weight_current_returns_false_when_first_algo_fails():
+    first_algo = mock.Mock(return_value=False)
+    algo = WeightCurrent(first_weight_algo=first_algo)
+
+    class _Target:
+        pass
+
+    target = _Target()
+    target.temp = {"selected": ["c1"]}
+    target.now = pd.Timestamp("2020-01-01")
+    target.children = {}
+
+    assert not algo(target)
+    assert not algo.has_run_first
+
+
+def test_weight_current_returns_false_for_invalid_context():
+    algo = WeightCurrent(first_weight_algo=mock.Mock(return_value=True))
+    target = mock.MagicMock(spec=[])
+    assert not algo(target)
+
+
+def test_weight_current_returns_false_for_non_list_selected():
+    algo = WeightCurrent(first_weight_algo=mock.Mock(return_value=True))
+
+    class _Target:
+        pass
+
+    target = _Target()
+    target.temp = {"selected": "c1"}
+    target.now = pd.Timestamp("2020-01-01")
+    target.children = {}
+    assert not algo(target)
+
+
+def test_weight_current_first_algo_output_is_not_re_sliced_or_normalized():
+    first_algo = mock.Mock(
+        side_effect=lambda target: target.temp.__setitem__(
+            "weights", {"c1": 0.7, "c2": 0.3}
+        )
+        or True
+    )
+    algo = WeightCurrent(first_weight_algo=first_algo)
+
+    class _Target:
+        pass
+
+    target = _Target()
+    target.temp = {"selected": ["c1"]}
+    target.now = pd.Timestamp("2020-01-01")
+    target.children = {}
+
+    assert algo(target)
+    assert target.temp["weights"] == {"c1": 0.7, "c2": 0.3}
+
+
+def test_weight_current_returns_false_when_first_algo_sets_invalid_weights_payload():
+    first_algo = mock.Mock(
+        side_effect=lambda target: target.temp.__setitem__("weights", "bad") or True
+    )
+    algo = WeightCurrent(first_weight_algo=first_algo)
+
+    class _Target:
+        pass
+
+    target = _Target()
+    target.temp = {"selected": ["c1"]}
+    target.now = pd.Timestamp("2020-01-01")
+    target.children = {}
+
+    assert not algo(target)
+    assert not algo.has_run_first
+
+
+def test_weight_current_returns_false_when_children_not_dict_after_first_run():
+    first_algo = mock.Mock(
+        side_effect=lambda target: target.temp.__setitem__("weights", {"c1": 1.0})
+        or True
+    )
+    algo = WeightCurrent(first_weight_algo=first_algo)
+
+    class _Target:
+        pass
+
+    target = _Target()
+    target.temp = {"selected": ["c1"]}
+    target.now = pd.Timestamp("2020-01-01")
+    target.children = {}
+    assert algo(target)
+
+    target.now = pd.Timestamp("2020-01-02")
+    target.children = ["not", "a", "dict"]
+    assert not algo(target)
+
+
 def test_weight_equally_returns_false_when_temp_missing():
     algo = WeightEqually()
     target = mock.MagicMock(spec=[])
@@ -219,6 +362,55 @@ def test_scale_weights():
     s.temp["weights"] = {"c1": 0.5, "c2": -0.4, "c3": 0}
     assert algo(s)
     assert s.temp["weights"] == {"c1": -0.25, "c2": 0.2, "c3": 0}
+
+
+def test_scale_weights_records_allocation_history():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["weights"] = {"c1": 0.5, "c2": 0.5}
+    algo = ScaleWeights(0.5)
+
+    assert algo(s)
+    assert s.temp["weights"] == {"c1": 0.25, "c2": 0.25}
+    assert dts[0] in algo.allocation_history.index
+    assert algo.allocation_history.loc[dts[0], "c1"] == pytest.approx(0.25)
+    assert algo.allocation_history.loc[dts[0], "c2"] == pytest.approx(0.25)
+
+
+def test_scale_weights_returns_false_when_temp_missing():
+    algo = ScaleWeights(0.5)
+    target = mock.MagicMock(spec=[])
+    assert not algo(target)
+
+
+def test_scale_weights_returns_false_for_invalid_weights_payload():
+    s = Strategy("s")
+    algo = ScaleWeights(0.5)
+    s.temp["weights"] = "invalid"
+
+    assert not algo(s)
+
+
+def test_scale_weights_empty_weights_writes_empty_and_records_row():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["weights"] = {}
+    algo = ScaleWeights(2.0)
+
+    assert algo(s)
+    assert s.temp["weights"] == {}
+    assert dts[0] in algo.allocation_history.index
+
+
+def test_scale_weights_raises_for_non_numeric_scale():
+    with pytest.raises(TypeError, match="scale"):
+        ScaleWeights("bad")
 
 
 def test_weigh_erc():

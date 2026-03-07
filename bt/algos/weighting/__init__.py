@@ -6,6 +6,7 @@ for a strategy. Each Algo modifies `temp['weights']` in the target strategy.
 
 Available Algos:
 - WeightEqually
+- WeightCurrent
 - WeightFixed
 - ScaleWeights
 - WeightFixedSchedule
@@ -21,6 +22,7 @@ Available Algos:
 """
 
 from .equal import WeightEqually
+from .current import WeightCurrent
 from .core import WeightAlgo
 from .fixed import WeightFixed
 from .fixed import WeightFixedSchedule
@@ -37,6 +39,7 @@ from .modifiers import LimitWeights
 
 __all__ = [
     "WeightEqually",
+    "WeightCurrent",
     "WeightAlgo",
     "WeightFixed",
     "ScaleWeights",

@@ -1,6 +1,6 @@
 """Weighting post-processing modifiers."""
 
-from .scale import ScaleWeights
+from .scaling import ScaleWeights
 from .limits import LimitDeltas, LimitWeights
 
 __all__ = [
