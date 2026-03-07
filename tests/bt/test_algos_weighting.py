@@ -14,6 +14,7 @@ from bt.algos.weighting import (
     WeighERC,
     WeighTarget,
     WeightInvVol,
+    WeightMarket,
     WeighMeanVar,
     WeighRandomly,
     LimitWeights,
@@ -285,6 +286,115 @@ def test_weight_inv_vol_raises_on_invalid_covariance_type():
 
     with pytest.raises(TypeError, match="covariance"):
         algo(s)
+
+
+def test_weight_market():
+    algo = WeightMarket("market_caps")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    market_caps = pd.DataFrame(
+        [[100.0, 300.0]],
+        index=dts,
+        columns=["c1", "c2"],
+    )
+
+    s.setup(data, market_caps=market_caps)
+    s.update(dts[0])
+    s.temp["selected"] = ["c1", "c2"]
+
+    assert algo(s)
+    assert s.temp["weights"]["c1"] == pytest.approx(0.25)
+    assert s.temp["weights"]["c2"] == pytest.approx(0.75)
+
+
+def test_weight_market_set_and_solve():
+    algo = WeightMarket()
+    assert isinstance(algo.optimizer, BaseOptimizer)
+    caps = pd.Series({"c1": 10.0, "c2": 30.0})
+    algo.optimizer.set_problem(caps, ["c1", "c2"])
+    result = algo.optimizer.solve_problem()
+    weights = result["weights"]
+    assert weights["c1"] == pytest.approx(0.25)
+    assert weights["c2"] == pytest.approx(0.75)
+
+
+def test_weight_market_empty_selected_records_history_row():
+    algo = WeightMarket("market_caps")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    market_caps = pd.DataFrame([[100.0]], index=dts, columns=["c1"])
+    s.setup(data, market_caps=market_caps)
+    s.update(dts[0])
+    s.temp["selected"] = []
+
+    assert algo(s)
+    assert s.temp["weights"] == {}
+    assert dts[0] in algo.allocation_history.index
+
+
+def test_weight_market_returns_false_for_non_list_selected():
+    algo = WeightMarket("market_caps")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    market_caps = pd.DataFrame([[100.0]], index=dts, columns=["c1"])
+    s.setup(data, market_caps=market_caps)
+    s.update(dts[0])
+    s.temp["selected"] = "c1"
+
+    assert not algo(s)
+
+
+def test_weight_market_returns_false_when_now_missing_in_market_caps():
+    algo = WeightMarket("market_caps")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    market_caps = pd.DataFrame(
+        [[100.0]],
+        index=[pd.Timestamp("2010-01-02")],
+        columns=["c1"],
+    )
+    s.setup(data, market_caps=market_caps)
+    s.update(dts[0])
+    s.temp["selected"] = ["c1"]
+
+    assert not algo(s)
+
+
+def test_weight_market_raises_on_invalid_market_cap_data_type():
+    algo = WeightMarket("market_caps")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data, market_caps="not-a-dataframe")
+    s.update(dts[0])
+    s.temp["selected"] = ["c1"]
+
+    with pytest.raises(TypeError, match="must be a DataFrame"):
+        algo(s)
+
+
+def test_market_weight_optimizer_filters_to_selected_before_normalizing():
+    algo = WeightMarket()
+    caps = pd.Series({"c1": 10.0, "c2": 30.0, "c3": 60.0})
+    algo.optimizer.set_problem(caps, ["c1", "c2"])
+    result = algo.optimizer.solve_problem()
+    weights = result["weights"]
+    assert set(weights.keys()) == {"c1", "c2"}
+    assert sum(weights.values()) == pytest.approx(1.0)
+    assert weights["c1"] == pytest.approx(0.25)
+    assert weights["c2"] == pytest.approx(0.75)
+
+
+def test_market_weight_optimizer_drops_nonpositive_and_nan_caps():
+    algo = WeightMarket()
+    caps = pd.Series({"c1": 10.0, "c2": np.nan, "c3": 0.0, "c4": -5.0})
+    algo.optimizer.set_problem(caps, ["c1", "c2", "c3", "c4"])
+    result = algo.optimizer.solve_problem()
+    assert result["weights"] == {"c1": pytest.approx(1.0)}
 
 
 @mock.patch.object(WeighMeanVar, "calc_mean_var_weights")

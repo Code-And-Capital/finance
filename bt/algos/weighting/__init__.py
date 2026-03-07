@@ -10,6 +10,7 @@ Available Algos:
 - ScaleWeights
 - WeighTarget
 - WeightInvVol
+- WeightMarket
 - WeighRandomly
 - WeighERC
 - WeighMeanVar
@@ -24,6 +25,7 @@ from .specified import WeighSpecified
 from .scale import ScaleWeights
 from .specified import WeighTarget
 from .inv_vol import WeightInvVol
+from .market import WeightMarket
 from .random import WeighRandomly
 from .risk_parity import WeighERC
 from .mvo import WeighMeanVar
@@ -38,6 +40,7 @@ __all__ = [
     "ScaleWeights",
     "WeighTarget",
     "WeightInvVol",
+    "WeightMarket",
     "WeighRandomly",
     "WeighERC",
     "WeighMeanVar",

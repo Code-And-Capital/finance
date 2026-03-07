@@ -429,6 +429,7 @@ def test_company_info_data_source_format_returns_company_info_payload(monkeypatc
             "TICKER": ["aapl"],
             "NAME": ["Apple"],
             "SECTOR": ["Technology"],
+            "MARKETCAP": [2_500_000_000_000.0],
         }
     )
     monkeypatch.setattr(
@@ -444,6 +445,7 @@ def test_company_info_data_source_format_returns_company_info_payload(monkeypatc
     assert "company_info" in formatted
     assert "officers" not in formatted
     assert "sector_wide" in formatted
+    assert "marketcap_wide" in formatted
     assert formatted["company_info"]["TICKER"].iloc[0] == "AAPL"
 
 
@@ -453,6 +455,7 @@ def test_company_info_data_source_sector_wide_reindexes_and_ffills(monkeypatch):
             "DATE": ["2026-03-01", "2026-03-03"],
             "TICKER": ["aapl", "aapl"],
             "SECTOR": ["Technology", "Technology"],
+            "MARKETCAP": [2_500_000_000_000.0, 2_510_000_000_000.0],
         }
     )
     monkeypatch.setattr(
@@ -471,6 +474,13 @@ def test_company_info_data_source_sector_wide_reindexes_and_ffills(monkeypatch):
         pd.to_datetime(["2026-03-01", "2026-03-02", "2026-03-03"])
     )
     assert sector_wide.loc[pd.Timestamp("2026-03-02"), "AAPL"] == "Technology"
+    marketcap_wide = source.formatted_data["marketcap_wide"]
+    assert list(marketcap_wide.index) == list(
+        pd.to_datetime(["2026-03-01", "2026-03-02", "2026-03-03"])
+    )
+    assert marketcap_wide.loc[pd.Timestamp("2026-03-02"), "AAPL"] == pytest.approx(
+        2_500_000_000_000.0
+    )
 
 
 def test_index_data_source_formats_returns(monkeypatch):

@@ -5,6 +5,12 @@ from __future__ import annotations
 import pandas as pd
 
 
+def validate_series(value, label: str, value_name: str) -> None:
+    """Validate that ``value`` is a pandas Series."""
+    if not isinstance(value, pd.Series):
+        raise TypeError(f"{label} `{value_name}` must be a Series.")
+
+
 def validate_square_covariance_matrix(covariance: pd.DataFrame, label: str) -> None:
     """Validate covariance matrix shape and axis alignment.
 

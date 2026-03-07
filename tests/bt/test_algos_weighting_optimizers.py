@@ -5,6 +5,7 @@ from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
 from bt.algos.weighting.optimizers.validators import (
     resolve_selected_covariance,
+    validate_series,
     validate_square_covariance_matrix,
 )
 import bt.algos.weighting.optimizers.convex_optimizer as convex_mod
@@ -198,6 +199,15 @@ def test_validate_square_covariance_matrix_rejects_axis_mismatch():
 def test_validate_square_covariance_matrix_accepts_valid_input():
     cov = pd.DataFrame([[1.0, 0.1], [0.1, 1.0]], index=["a", "b"], columns=["a", "b"])
     validate_square_covariance_matrix(cov, "TestOpt")
+
+
+def test_validate_series_rejects_non_series():
+    with pytest.raises(TypeError, match="must be a Series"):
+        validate_series({"a": 1.0}, "TestOpt", "market_caps")
+
+
+def test_validate_series_accepts_series():
+    validate_series(pd.Series({"a": 1.0}), "TestOpt", "market_caps")
 
 
 def test_resolve_selected_covariance_subset_failure_returns_empty():

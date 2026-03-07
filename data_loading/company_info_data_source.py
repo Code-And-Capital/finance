@@ -109,6 +109,18 @@ class CompanyInfoDataSource(BaseDataSource):
                 sector_wide = sector_wide.reindex(target_dates)
             sector_wide = sector_wide.ffill().bfill()
             outputs["sector_wide"] = sector_wide
+        if {"DATE", "TICKER", "MARKETCAP"}.issubset(data.columns):
+            marketcap_wide = data.pivot_table(
+                index="DATE",
+                columns="TICKER",
+                values="MARKETCAP",
+                aggfunc="last",
+            ).sort_index()
+            if dates is not None:
+                target_dates = pd.DatetimeIndex(pd.to_datetime(pd.Index(dates)))
+                marketcap_wide = marketcap_wide.reindex(target_dates)
+            marketcap_wide = marketcap_wide.ffill().bfill()
+            outputs["marketcap_wide"] = marketcap_wide
         self.formatted_data = outputs
         log(
             f"CompanyInfoDataSource: formatted company_info rows={len(outputs['company_info'])}",
