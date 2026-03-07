@@ -17,6 +17,7 @@ from bt.algos.weighting import (
     WeightMarket,
     WeightMeanVar,
     WeightMinVar,
+    WeightMaxDiversification,
     WeightRandomly,
     LimitWeights,
     TargetVol,
@@ -220,6 +221,29 @@ def test_weigh_target():
 
 def test_weight_min_var():
     algo = WeightMinVar()
+
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = ["c1", "c2"]
+    s.temp["covariance"] = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.01]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
+
+    assert algo(s)
+    weights = s.temp["weights"]
+    assert set(weights.keys()) == {"c1", "c2"}
+    assert sum(weights.values()) == pytest.approx(1.0)
+    assert weights["c2"] > weights["c1"]
+
+
+def test_weight_max_diversification():
+    algo = WeightMaxDiversification()
 
     s = Strategy("s")
     dts = pd.date_range("2010-01-01", periods=1)

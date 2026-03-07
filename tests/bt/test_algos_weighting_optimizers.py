@@ -6,6 +6,7 @@ from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
 from bt.algos.weighting.optimizers.constraints import (
     bound_constraints,
+    non_negative_constraint,
     sum_to_one_constraint,
 )
 from bt.algos.weighting.optimizers.objectives import negative_sharpe_ratio
@@ -24,6 +25,7 @@ from bt.algos.weighting.mean_variance import MeanVarianceOptimizer
 from bt.algos.weighting.random import RandomWeightOptimizer
 from bt.algos.weighting.risk_parity import RiskParityOptimizer
 from bt.algos.weighting.min_variance import MinVarianceOptimizer
+from bt.algos.weighting.max_diversification import MaxDiversificationOptimizer
 import bt.algos.weighting.optimizers.convex_optimizer as convex_mod
 import cvxpy as cvx
 
@@ -285,6 +287,15 @@ def test_sum_to_one_constraint():
     assert np.sum(w.value) == pytest.approx(1.0)
 
 
+def test_non_negative_constraint():
+    w = cvx.Variable(2)
+    constraint = non_negative_constraint(w)
+    problem = cvx.Problem(cvx.Minimize(0), [constraint, cvx.sum(w) == 1.0])
+    problem.solve()
+    assert w.value is not None
+    assert np.min(w.value) >= -1e-10
+
+
 def test_negative_sharpe_ratio():
     w = np.array([0.5, 0.5])
     mu = np.array([0.1, 0.2])
@@ -488,6 +499,33 @@ def test_min_variance_optimizer_set_and_solve():
 def test_min_variance_optimizer_single_asset():
     covariance = pd.DataFrame([[0.04]], index=["c1"], columns=["c1"])
     opt = MinVarianceOptimizer()
+    opt.set_problem(covariance, ["c1"])
+    result = opt.solve_problem()
+    assert result["weights"] == {"c1": pytest.approx(1.0)}
+
+
+def test_max_diversification_optimizer_set_and_solve():
+    covariance = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.01]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
+    opt = MaxDiversificationOptimizer()
+    opt.set_problem(covariance, ["c1", "c2"])
+    result = opt.solve_problem()
+    assert result["success"] is True
+    weights = result["weights"]
+    assert set(weights.keys()) == {"c1", "c2"}
+    assert sum(weights.values()) == pytest.approx(1.0)
+    assert weights["c2"] > weights["c1"]
+    raw = np.asarray(opt.problem_data["weights_var"].value, dtype=float).reshape(-1)
+    vols = np.sqrt(np.diag(covariance.to_numpy(dtype=float)))
+    assert float(raw @ vols) == pytest.approx(1.0)
+
+
+def test_max_diversification_optimizer_single_asset():
+    covariance = pd.DataFrame([[0.04]], index=["c1"], columns=["c1"])
+    opt = MaxDiversificationOptimizer()
     opt.set_problem(covariance, ["c1"])
     result = opt.solve_problem()
     assert result["weights"] == {"c1": pytest.approx(1.0)}

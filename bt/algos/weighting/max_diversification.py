@@ -7,12 +7,9 @@ import numpy as np
 import pandas as pd
 
 from bt.algos.weighting.core import WeightAlgo
-from bt.algos.weighting.optimizers.constraints import (
-    non_negative_constraint,
-    sum_to_one_constraint,
-)
+from bt.algos.weighting.optimizers.constraints import non_negative_constraint
 from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
-from bt.algos.weighting.optimizers.objectives import risk_parity_objective
+from bt.algos.weighting.optimizers.objectives import min_variance_objective
 from bt.algos.weighting.optimizers.validators import (
     resolve_selected_covariance,
     validate_square_covariance_matrix,
@@ -23,8 +20,8 @@ from bt.algos.weighting.optimizers.variables import (
 )
 
 
-class RiskParityOptimizer(ConvexOptimizer):
-    """Convex equal-risk-budget optimizer."""
+class MaxDiversificationOptimizer(ConvexOptimizer):
+    """Convex maximum-diversification optimizer using the standard proxy form."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -35,9 +32,9 @@ class RiskParityOptimizer(ConvexOptimizer):
         selected: list[str],
         **kwargs: Any,
     ) -> None:
-        """Assemble risk-parity objective and constraints."""
+        """Set covariance inputs and assemble objective/constraints."""
         self.reset()
-        validate_square_covariance_matrix(cov, "RiskParityOptimizer")
+        validate_square_covariance_matrix(cov, "MaxDiversificationOptimizer")
         cov = resolve_selected_covariance(cov, selected)
 
         asset_count = len(selected)
@@ -49,18 +46,17 @@ class RiskParityOptimizer(ConvexOptimizer):
 
         cov_matrix = build_covariance_matrix(cov)
         weights = build_weight_variable(asset_count, self.variable)
-        risk_budgets = np.full(asset_count, 1.0 / asset_count, dtype=float)
+        vols = np.sqrt(np.diag(cov.to_numpy(dtype=float, copy=True)))
 
         self.add_objective(
-            lambda: risk_parity_objective(
+            lambda: min_variance_objective(
                 weights,
                 cov_matrix,
-                risk_budgets,
                 self.minimize,
             )
         )
         self.add_constraint(non_negative_constraint(weights))
-        self.add_constraint(sum_to_one_constraint(weights))
+        self.add_constraint(weights.T @ vols == 1.0)
         self.set_problem_data(
             universe=selected,
             asset_count=asset_count,
@@ -68,7 +64,7 @@ class RiskParityOptimizer(ConvexOptimizer):
         )
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve risk-parity problem and return weights payload."""
+        """Solve max-diversification problem and return normalized weights."""
         asset_count = int(self.problem_data.get("asset_count", 0))
         universe = self.problem_data.get("universe", [])
         weights_var = self.problem_data.get("weights_var")
@@ -87,27 +83,28 @@ class RiskParityOptimizer(ConvexOptimizer):
 
         super().solve_problem(*args, **kwargs)
         if weights_var is None or weights_var.value is None:
-            raise RuntimeError("RiskParityOptimizer solved without weights.")
+            raise RuntimeError("MaxDiversificationOptimizer solved without weights.")
         solved = np.asarray(weights_var.value, dtype=float).reshape(-1)
-        self.weights_ = {
-            asset: float(weight) for asset, weight in zip(universe, solved)
-        }
+        total = float(np.sum(solved))
+        if not np.isfinite(total) or total == 0.0:
+            self.weights_ = {}
+        else:
+            normalized = solved / total
+            self.weights_ = {
+                asset: float(weight) for asset, weight in zip(universe, normalized)
+            }
         return self.get_result()
 
 
-class WeightRiskParity(WeightAlgo):
-    """Assign ERC/risk-parity weights using covariance from ``temp``."""
+class WeightMaxDiversification(WeightAlgo):
+    """Assign portfolio weights using convex maximum-diversification optimization."""
 
-    def __init__(
-        self,
-        covariance_key: str = "covariance",
-    ) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.covariance_key = covariance_key
-        self.optimizer = RiskParityOptimizer()
+        self.optimizer = MaxDiversificationOptimizer()
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store ERC weights in ``temp['weights']``."""
+        """Compute and store max-diversification weights in ``temp['weights']``."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -126,8 +123,8 @@ class WeightRiskParity(WeightAlgo):
             self._record_allocation_history(now, weights)
             return True
 
-        covariance = temp.get(self.covariance_key)
-        self.optimizer.set_problem(covariance, selected_raw)
+        cov = temp.get("covariance")
+        self.optimizer.set_problem(cov, selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]
         self._write_weights(temp, weights)

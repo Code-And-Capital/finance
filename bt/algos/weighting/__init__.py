@@ -15,6 +15,7 @@ Available Algos:
 - WeightRiskParity
 - WeightMeanVar
 - WeightMinVar
+- WeightMaxDiversification
 - TargetVol
 - LimitDeltas
 - LimitWeights
@@ -31,6 +32,7 @@ from .random import WeightRandomly
 from .risk_parity import WeightRiskParity
 from .mean_variance import WeightMeanVar
 from .min_variance import WeightMinVar
+from .max_diversification import WeightMaxDiversification
 from .target_vol import TargetVol
 from .limits import LimitDeltas
 from .limits import LimitWeights
@@ -47,6 +49,7 @@ __all__ = [
     "WeightRiskParity",
     "WeightMeanVar",
     "WeightMinVar",
+    "WeightMaxDiversification",
     "TargetVol",
     "LimitDeltas",
     "LimitWeights",
