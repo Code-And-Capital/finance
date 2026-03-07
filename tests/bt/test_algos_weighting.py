@@ -16,7 +16,7 @@ from bt.algos.weighting import (
     WeightInvVol,
     WeightMarket,
     WeightMeanVar,
-    WeighRandomly,
+    WeightRandomly,
     LimitWeights,
     TargetVol,
 )
@@ -431,17 +431,17 @@ def test_weigh_randomly():
     s = Strategy("s")
     s.temp["selected"] = ["c1", "c2", "c3"]
 
-    algo = WeighRandomly()
+    algo = WeightRandomly()
     assert algo(s)
     weights = s.temp["weights"]
     assert len(weights) == 3
-    assert sum(weights.values()) == 1.0
+    assert sum(weights.values()) == pytest.approx(1.0)
 
-    algo = WeighRandomly((0.3, 0.5), 0.95)
+    algo = WeightRandomly((0.3, 0.5))
     assert algo(s)
     weights = s.temp["weights"]
     assert len(weights) == 3
-    assert sum(weights.values()) == pytest.approx(0.95)
+    assert sum(weights.values()) == pytest.approx(1.0)
     for c in s.temp["selected"]:
         assert weights[c] <= 0.5
         assert weights[c] >= 0.3

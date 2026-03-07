@@ -1,153 +1,120 @@
-import random
+from __future__ import annotations
+
+from typing import Any
+
+import numpy as np
+import drs
+
 from bt.algos.weighting.core import WeightAlgo
+from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
+from bt.algos.weighting.optimizers.validators import validate_bounds
 
 
-class WeighRandomly(WeightAlgo):
-    """
-    Algo that assigns random weights to the assets in ``selected``.
+class RandomWeightOptimizer(BaseOptimizer):
+    """Optimizer that samples feasible random weights under box bounds."""
 
-    This is primarily useful for benchmarking whether a given weighting
-    scheme adds value compared to a naïve random weighting baseline.
-
-    The algorithm uses ``random_weights`` to generate a random weight
-    vector subject to optional bounds and an optional target weight sum.
-
-    Parameters
-    ----------
-    bounds : tuple[float, float], optional
-        A `(low, high)` tuple specifying the allowed range for each weight.
-        Defaults to `(0.0, 1.0)`.
-    weight_sum : float, optional
-        Desired sum of weights after randomization.
-        Defaults to `1`.
-
-    Sets
-    ----
-    weights : dict
-        Stored in ``target.temp["weights"]`` as a {ticker: weight} mapping.
-
-    Requires
-    --------
-    selected : list[str]
-        Tickers to assign weights to.
-    """
-
-    def __init__(self, bounds: tuple = (0.0, 1.0), weight_sum: float = 1):
-        """
-        Initialize the random weighting algo.
-
-        Parameters
-        ----------
-        bounds : tuple
-            (low, high) bounds for each weight.
-        weight_sum : float
-            Total desired sum of weights.
-        """
+    def __init__(
+        self,
+        bounds: tuple[float, float] = (0.0, 1.0),
+        random_seed: int | None = None,
+    ) -> None:
         super().__init__()
-        self.bounds = bounds
-        self.weight_sum = weight_sum
+        self.bounds = validate_bounds(bounds, "RandomWeightOptimizer")
+        self.random_seed = random_seed
 
-    def random_weights(self, n: int, bounds: tuple = (0.0, 1.0), total: float = 1.0):
-        """
-        Generate pseudo-random weights that sum to a specified total.
+    def set_problem(
+        self,
+        selected: list[str],
+    ) -> None:
+        """Store selected assets for random-weight solve."""
+        self.reset()
+        assets = list(set(selected))
+        n_assets = len(assets)
+        lower, upper = self.bounds
+        min_weights = np.full(n_assets, lower, dtype=float)
+        max_weights = np.full(n_assets, upper, dtype=float)
+        self.set_problem_data(
+            assets=assets,
+            asset_count=n_assets,
+            min_weights=min_weights,
+            max_weights=max_weights,
+        )
 
-        Produces a list of ``n`` random weights, each constrained within
-        the ``bounds`` interval, while ensuring the final weight vector
-        sums exactly to ``total``. This is useful for creating random
-        benchmark portfolios or random allocation strategies when testing
-        robustness.
+    def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Solve random-weight allocation and return standard result payload."""
+        assets = self.problem_data.get("assets", [])
+        asset_count = self.problem_data.get("asset_count", 0)
+        min_weights = self.problem_data.get("min_weights")
+        max_weights = self.problem_data.get("max_weights")
 
-        The algorithm works by iteratively sampling feasible weight values
-        given the remaining number of slots and remaining required total.
+        if asset_count == 0:
+            allocations: dict[str, float] = {}
+        elif asset_count == 1:
+            allocations = {assets[0]: 1.0}
+        else:
+            target = 1.0
+            min_total = asset_count * self.bounds[0]
+            max_total = asset_count * self.bounds[1]
+            if target < min_total or target > max_total:
+                raise ValueError(
+                    "RandomWeightOptimizer infeasible problem: "
+                    "n_assets*bounds[0] <= 1 <= n_assets*bounds[1] must hold."
+                )
+            if self.random_seed is not None:
+                np.random.seed(self.random_seed)
+            # TODO: Replace DRS with convolutionalfixedsum once installation/build is stable.
+            sampled = np.asarray(
+                drs.drs(asset_count, 1, max_weights, min_weights),
+                dtype=float,
+            ).reshape(-1)
+            allocations = {
+                asset: float(weight) for asset, weight in zip(assets, sampled)
+            }
 
-        Parameters
-        ----------
-        n : int
-            Number of weights to generate.
-        bounds : tuple
-            A ``(low, high)`` pair specifying the allowed range for each weight.
-        total : float
-            Desired total sum of the weights.
+        self.weights_ = allocations
+        self.success = True
+        self.status = "optimal"
+        self.message = "Solved analytically."
+        return self.get_result()
 
-        Returns
-        -------
-        list[float]
-            A list of ``n`` random weights that satisfy the bounds and sum constraints.
 
-        Raises
-        ------
-        ValueError
-            If bounds are invalid or it is impossible to reach ``total`` given ``n``.
-        """
-        low, high = bounds
+class WeightRandomly(WeightAlgo):
+    """Assign bounded random weights for names in ``temp['selected']``."""
 
-        if high < low:
-            raise ValueError(
-                "Upper bound must be greater than or equal to lower bound."
-            )
+    def __init__(
+        self,
+        bounds: tuple[float, float] = (0.0, 1.0),
+        random_seed: int | None = None,
+    ) -> None:
+        super().__init__()
+        self.optimizer = RandomWeightOptimizer(
+            bounds=bounds,
+            random_seed=random_seed,
+        )
 
-        # Check feasibility: can the bounds accommodate the required total?
-        if n * high < total or n * low > total:
-            raise ValueError("Solution not possible with given n, bounds, and total.")
+    def __call__(self, target: Any) -> bool:
+        """Compute and store random weights in ``temp['weights']``."""
+        temp = self._resolve_temp(target)
+        if temp is None:
+            return False
+        now = self._resolve_now(target)
 
-        weights = [0.0] * n
-        remaining_total = -float(
-            total
-        )  # Negative target matches original algorithm structure
-
-        for i in range(n):
-            remaining = n - i - 1
-
-            remaining_high_sum = remaining * high
-            remaining_low_sum = remaining * low
-
-            # Determine feasible range for this weight
-            min_allowed = max(-remaining_high_sum - remaining_total, low)
-            max_allowed = min(-remaining_low_sum - remaining_total, high)
-
-            # Sample a random weight within bounds
-            w_i = random.uniform(min_allowed, max_allowed)
-            weights[i] = w_i
-
-            # Update remaining target
-            remaining_total += w_i
-
-        # Shuffle to avoid order-based bias
-        random.shuffle(weights)
-
-        return weights
-
-    def __call__(self, target) -> bool:
-        """
-        Generate and assign random weights to the currently selected assets.
-
-        Parameters
-        ----------
-        target : StrategyBase
-            Strategy execution context containing:
-            - ``target.temp["selected"]``: list of tickers
-            - ``target.temp``: temporary storage dictionary
-
-        Returns
-        -------
-        bool
-            Always True after setting random weights.
-        """
-        selected = target.temp.get("selected", [])
-        n = len(selected)
-
-        # Default to zero weights if no assets selected
-        if n == 0:
-            target.temp["weights"] = {}
+        selected_raw = temp.get("selected", [])
+        if not isinstance(selected_raw, list):
+            return False
+        if not selected_raw:
+            self._write_weights(temp, {})
+            self._record_allocation_history(now, {})
+            return True
+        if len(selected_raw) == 1:
+            weights = {selected_raw[0]: 1.0}
+            self._write_weights(temp, weights)
+            self._record_allocation_history(now, weights)
             return True
 
-        try:
-            random_vector = self.random_weights(n, self.bounds, self.weight_sum)
-            weights = dict(zip(selected, random_vector))
-        except Exception:
-            # If random generation fails, fall back to equal weights
-            fallback = 1.0 / n
-            weights = {ticker: fallback for ticker in selected}
-
-        target.temp["weights"] = weights
+        self.optimizer.set_problem(selected_raw)
+        result = self.optimizer.solve_problem()
+        weights = result["weights"]
+        self._write_weights(temp, weights)
+        self._record_allocation_history(now, weights)
         return True

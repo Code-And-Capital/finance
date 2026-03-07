@@ -15,6 +15,7 @@ from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
 from bt.algos.weighting.optimizers.objectives import mean_variance_utility_objective
 from bt.algos.weighting.optimizers.validators import (
     resolve_selected_covariance,
+    validate_bounds,
     validate_series,
     validate_square_covariance_matrix,
 )
@@ -28,16 +29,20 @@ from bt.algos.weighting.optimizers.variables import (
 class MeanVarianceOptimizer(ConvexOptimizer):
     """Convex mean-variance optimizer with optional turnover and group constraints."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        risk_averse_lambda: float = 1.0,
+        bounds: tuple[float, float] = (0.0, 1.0),
+    ) -> None:
         super().__init__()
+        self.risk_averse_lambda = float(risk_averse_lambda)
+        self.bounds = validate_bounds(bounds, "MeanVarianceOptimizer")
 
     def set_problem(
         self,
         rets: pd.Series,
         cov: pd.DataFrame,
         selected: list[str],
-        risk_averse_lambda: float = 1.0,
-        bounds: tuple[float, float] = (0.0, 1.0),
         **kwargs: Any,
     ) -> None:
         """Set expected returns/covariance and assemble CVX objective+constraints."""
@@ -63,14 +68,14 @@ class MeanVarianceOptimizer(ConvexOptimizer):
             asset_count,
             self.variable,
         )
-        min_weights, max_weights = self.compute_weight_bounds(selected, bounds)
+        min_weights, max_weights = self.compute_weight_bounds(selected, self.bounds)
 
         self.add_objective(
             lambda: mean_variance_utility_objective(
                 weights,
                 exp_returns,
                 cov_matrix,
-                float(risk_averse_lambda),
+                self.risk_averse_lambda,
                 self.maximize,
             )
         )
@@ -129,7 +134,10 @@ class WeightMeanVar(WeightAlgo):
         super().__init__()
         self.risk_averse_lambda = float(risk_averse_lambda)
         self.bounds = bounds
-        self.optimizer = MeanVarianceOptimizer()
+        self.optimizer = MeanVarianceOptimizer(
+            risk_averse_lambda=self.risk_averse_lambda,
+            bounds=self.bounds,
+        )
 
     def __call__(self, target: Any) -> bool:
         """Compute and store mean-variance weights in ``temp['weights']``."""
@@ -157,8 +165,6 @@ class WeightMeanVar(WeightAlgo):
             rets,
             cov,
             selected=selected_raw,
-            risk_averse_lambda=self.risk_averse_lambda,
-            bounds=self.bounds,
         )
         result = self.optimizer.solve_problem()
         weights = result["weights"]

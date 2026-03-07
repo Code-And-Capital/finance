@@ -10,7 +10,7 @@ import pandas as pd
 import cProfile
 from bt.core import Strategy, Security
 from bt.algos.selection import SelectRandomly, SelectThese
-from bt.algos.weighting import WeighRandomly
+from bt.algos.weighting import WeightRandomly
 from bt.algos.flow import RunMonthly
 from bt.algos.portfolio_ops import Rebalance
 from bt.engine import Backtest
@@ -27,7 +27,7 @@ def benchmark_1():
         [
             RunMonthly(),
             SelectRandomly(int(len(data.columns) / 2)),
-            WeighRandomly(),
+            WeightRandomly(),
             Rebalance(),
         ],
     )
@@ -52,7 +52,7 @@ def benchmark_3():
         [
             RunMonthly(),
             SelectThese([0, 1]),
-            WeighRandomly(),
+            WeightRandomly(),
             Rebalance(),
         ],
         children=children,

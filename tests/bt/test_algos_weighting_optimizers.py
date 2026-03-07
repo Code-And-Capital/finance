@@ -12,10 +12,12 @@ from bt.algos.weighting.optimizers.objectives import negative_sharpe_ratio
 from bt.algos.weighting.optimizers.objectives import mean_variance_utility_objective
 from bt.algos.weighting.optimizers.validators import (
     resolve_selected_covariance,
+    validate_bounds,
     validate_series,
     validate_square_covariance_matrix,
 )
 from bt.algos.weighting.mean_variance import MeanVarianceOptimizer
+from bt.algos.weighting.random import RandomWeightOptimizer
 import bt.algos.weighting.optimizers.convex_optimizer as convex_mod
 import cvxpy as cvx
 
@@ -227,6 +229,30 @@ def test_validate_series_accepts_series():
     validate_series(pd.Series({"a": 1.0}), "TestOpt", "market_caps")
 
 
+def test_validate_bounds_rejects_non_tuple():
+    with pytest.raises(TypeError, match="must be a 2-tuple"):
+        validate_bounds([0.0, 1.0], "TestOpt")
+
+
+def test_validate_bounds_rejects_wrong_length():
+    with pytest.raises(TypeError, match="must be a 2-tuple"):
+        validate_bounds((0.0, 0.5, 1.0), "TestOpt")
+
+
+def test_validate_bounds_rejects_negative_values():
+    with pytest.raises(ValueError, match="must be >= 0"):
+        validate_bounds((-0.1, 0.5), "TestOpt")
+
+
+def test_validate_bounds_rejects_inverted_bounds():
+    with pytest.raises(ValueError, match="requires lower <= upper"):
+        validate_bounds((0.7, 0.3), "TestOpt")
+
+
+def test_validate_bounds_accepts_valid_tuple():
+    assert validate_bounds((0.1, 0.8), "TestOpt") == (0.1, 0.8)
+
+
 def test_resolve_selected_covariance_subset_failure_returns_empty():
     cov = pd.DataFrame([[1.0]], index=["a"], columns=["a"])
     subset = resolve_selected_covariance(cov, ["b"])
@@ -311,13 +337,8 @@ def test_mean_variance_optimizer_set_problem_data_contract():
     )
     selected = ["c3", "c1"]
 
-    opt = MeanVarianceOptimizer()
-    opt.set_problem(
-        expected_returns,
-        covariance,
-        selected=selected,
-        bounds=(0.1, 0.8),
-    )
+    opt = MeanVarianceOptimizer(bounds=(0.1, 0.8))
+    opt.set_problem(expected_returns, covariance, selected=selected)
 
     assert opt.problem_data["universe"] == selected
     assert opt.problem_data["asset_count"] == 2
@@ -368,3 +389,22 @@ def test_mean_variance_optimizer_empty_returns():
     opt.set_problem(expected_returns, covariance, [])
     result = opt.solve_problem()
     assert result["weights"] == {}
+
+
+def test_random_weight_optimizer_set_and_solve():
+    opt = RandomWeightOptimizer(bounds=(0.1, 0.6), random_seed=7)
+    opt.set_problem(["c1", "c2", "c3"])
+    result = opt.solve_problem()
+    weights = result["weights"]
+    assert result["success"] is True
+    assert set(weights.keys()) == {"c1", "c2", "c3"}
+    assert sum(weights.values()) == pytest.approx(1.0)
+    for weight in weights.values():
+        assert 0.1 <= weight <= 0.6
+
+
+def test_random_weight_optimizer_rejects_infeasible_problem():
+    opt = RandomWeightOptimizer(bounds=(0.4, 0.5), random_seed=7)
+    opt.set_problem(["c1", "c2", "c3"])
+    with pytest.raises(ValueError, match="infeasible problem"):
+        opt.solve_problem()
