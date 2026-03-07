@@ -1,7 +1,7 @@
-from bt.algos.core import Algo
+from bt.algos.weighting.core import WeightAlgo
 
 
-class ScaleWeights(Algo):
+class ScaleWeights(WeightAlgo):
     """
     Algo that scales existing portfolio weights by a constant factor.
 

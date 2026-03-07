@@ -7,8 +7,8 @@ from typing import Any, Callable
 class BaseOptimizer(ABC):
     """Base contract and shared utilities for portfolio optimizers.
 
-    This class stores an optimization objective and constraints for concrete
-    optimizer backends (for example CVXPY-based implementations).
+    This class stores optimizer configuration/state and defines a single
+    execution entrypoint: ``solve_problem(...)``.
     """
 
     MAX_ITER = 300
@@ -98,11 +98,10 @@ class BaseOptimizer(ABC):
             "message": self.message,
         }
 
-    def solve(self, *args: Any, **kwargs: Any) -> Any:
+    def solve_problem(self, *args: Any, **kwargs: Any) -> Any:
         """Solve the optimization problem.
 
-        Concrete subclasses should override this method. The base implementation
-        validates minimum setup and raises ``NotImplementedError``.
+        Concrete subclasses should override this method and return a payload
+        compatible with ``get_result()`` semantics where applicable.
         """
-        self.validate_problem()
-        raise NotImplementedError("Subclasses must implement `solve`.")
+        raise NotImplementedError("Subclasses must implement `solve_problem`.")

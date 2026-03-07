@@ -1,10 +1,10 @@
-from bt.algos.core import Algo
+from bt.algos.weighting.core import WeightAlgo
 import pandas as pd
 import numpy as np
 import sklearn
 
 
-class TargetVol(Algo):
+class TargetVol(WeightAlgo):
     """
     Adjust portfolio weights to achieve a target annualized volatility.
 

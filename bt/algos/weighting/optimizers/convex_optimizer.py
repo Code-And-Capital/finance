@@ -87,7 +87,7 @@ class ConvexOptimizer(BaseOptimizer):
             resolved.append(constraint)
         return resolved
 
-    def solve(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """Form and solve the CVXPY problem.
 
         Returns

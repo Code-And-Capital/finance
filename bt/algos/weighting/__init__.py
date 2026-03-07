@@ -5,11 +5,11 @@ This package contains various Algos to generate or adjust portfolio weights
 for a strategy. Each Algo modifies `temp['weights']` in the target strategy.
 
 Available Algos:
-- WeighEqually
+- WeightEqually
 - WeighSpecified
 - ScaleWeights
 - WeighTarget
-- WeighInvVol
+- WeightInvVol
 - WeighRandomly
 - WeighERC
 - WeighMeanVar
@@ -18,11 +18,12 @@ Available Algos:
 - LimitWeights
 """
 
-from .equal import WeighEqually
+from .equal import WeightEqually
+from .core import WeightAlgo
 from .specified import WeighSpecified
 from .scale import ScaleWeights
 from .specified import WeighTarget
-from .inv_vol import WeighInvVol
+from .inv_vol import WeightInvVol
 from .random import WeighRandomly
 from .risk_parity import WeighERC
 from .mvo import WeighMeanVar
@@ -31,11 +32,12 @@ from .limits import LimitDeltas
 from .limits import LimitWeights
 
 __all__ = [
-    "WeighEqually",
+    "WeightEqually",
+    "WeightAlgo",
     "WeighSpecified",
     "ScaleWeights",
     "WeighTarget",
-    "WeighInvVol",
+    "WeightInvVol",
     "WeighRandomly",
     "WeighERC",
     "WeighMeanVar",

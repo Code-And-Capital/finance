@@ -1,8 +1,8 @@
-from bt.algos.core import Algo
 import random
+from bt.algos.weighting.core import WeightAlgo
 
 
-class WeighRandomly(Algo):
+class WeighRandomly(WeightAlgo):
     """
     Algo that assigns random weights to the assets in ``selected``.
 

@@ -1,12 +1,17 @@
 import pytest
+import pandas as pd
 
 from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
+from bt.algos.weighting.optimizers.validators import (
+    resolve_selected_covariance,
+    validate_square_covariance_matrix,
+)
 import bt.algos.weighting.optimizers.convex_optimizer as convex_mod
 
 
 class DummyOptimizer(BaseOptimizer):
-    def solve(self, *args, **kwargs):
+    def solve_problem(self, *args, **kwargs):
         self.validate_problem()
         self.success = True
         self.status = "optimal"
@@ -95,14 +100,14 @@ def test_get_result_returns_standard_payload():
     }
 
 
-def test_base_solve_raises_not_implemented():
-    class NoSolveOptimizer(BaseOptimizer):
+def test_base_solve_problem_raises_not_implemented():
+    class NoSolveProblemOptimizer(BaseOptimizer):
         pass
 
-    opt = NoSolveOptimizer()
+    opt = NoSolveProblemOptimizer()
     opt.add_objective(lambda: None)
     with pytest.raises(NotImplementedError, match="Subclasses must implement"):
-        opt.solve()
+        opt.solve_problem()
 
 
 def test_reset_clears_runtime_state():
@@ -128,10 +133,10 @@ def test_reset_clears_runtime_state():
     assert opt.message is None
 
 
-def test_dummy_optimizer_solve_returns_result_payload():
+def test_dummy_optimizer_solve_problem_returns_result_payload():
     opt = DummyOptimizer()
     opt.add_objective(lambda: None)
-    result = opt.solve()
+    result = opt.solve_problem()
 
     assert result["success"] is True
     assert result["status"] == "optimal"
@@ -144,21 +149,21 @@ def test_convex_optimizer_requires_callable_objective():
     # bypass BaseOptimizer.add_objective to test Convex-specific validation
     opt._objective = object()  # type: ignore[assignment]
     with pytest.raises(TypeError, match="objective must be a callable"):
-        opt.solve()
+        opt.solve_problem()
 
 
 def test_convex_optimizer_requires_solver_candidates():
     opt = ConvexOptimizer(solver_candidates=())
     opt.add_objective(lambda: convex_mod.cvx.Minimize(0))
     with pytest.raises(ValueError, match="at least one solver candidate"):
-        opt.solve()
+        opt.solve_problem()
 
 
 def test_convex_optimizer_builder_none_raises():
     opt = ConvexOptimizer()
     opt.add_objective(lambda: None)
     with pytest.raises(ValueError, match="returned None"):
-        opt.solve()
+        opt.solve_problem()
 
 
 def test_convex_optimizer_solves_simple_problem():
@@ -166,8 +171,47 @@ def test_convex_optimizer_solves_simple_problem():
     opt = ConvexOptimizer()
     opt.add_objective(lambda: convex_mod.cvx.Minimize(convex_mod.cvx.square(x - 1.0)))
     opt.add_constraint(lambda: x >= 0.0)
-    result = opt.solve()
+    result = opt.solve_problem()
 
     assert result["success"] is True
     assert result["status"] in {"optimal", "optimal_inaccurate"}
     assert isinstance(result["message"], str)
+
+
+def test_validate_square_covariance_matrix_rejects_non_dataframe():
+    with pytest.raises(TypeError, match="must be a DataFrame"):
+        validate_square_covariance_matrix([1, 2, 3], "TestOpt")  # type: ignore[arg-type]
+
+
+def test_validate_square_covariance_matrix_rejects_non_square():
+    cov = pd.DataFrame([[1.0, 0.1]], index=["a"], columns=["a", "b"])
+    with pytest.raises(ValueError, match="must be square"):
+        validate_square_covariance_matrix(cov, "TestOpt")
+
+
+def test_validate_square_covariance_matrix_rejects_axis_mismatch():
+    cov = pd.DataFrame([[1.0, 0.1], [0.1, 1.0]], index=["a", "b"], columns=["a", "c"])
+    with pytest.raises(ValueError, match="index/columns must match"):
+        validate_square_covariance_matrix(cov, "TestOpt")
+
+
+def test_validate_square_covariance_matrix_accepts_valid_input():
+    cov = pd.DataFrame([[1.0, 0.1], [0.1, 1.0]], index=["a", "b"], columns=["a", "b"])
+    validate_square_covariance_matrix(cov, "TestOpt")
+
+
+def test_resolve_selected_covariance_subset_failure_returns_empty():
+    cov = pd.DataFrame([[1.0]], index=["a"], columns=["a"])
+    subset = resolve_selected_covariance(cov, ["b"])
+    assert subset.empty
+
+
+def test_resolve_selected_covariance_success():
+    cov = pd.DataFrame(
+        [[1.0, 0.2], [0.2, 1.0]],
+        index=["a", "b"],
+        columns=["a", "b"],
+    )
+    subset = resolve_selected_covariance(cov, ["b", "a"])
+    assert list(subset.index) == ["b", "a"]
+    assert list(subset.columns) == ["b", "a"]

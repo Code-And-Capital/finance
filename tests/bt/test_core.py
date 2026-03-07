@@ -21,7 +21,7 @@ from bt.core.security import (
 from bt.core.strategy import StrategyBase, Strategy
 from bt.algos.core import AlgoStack
 from bt.algos.selection import SelectWhere, SelectAll
-from bt.algos.weighting import WeighEqually, WeighTarget
+from bt.algos.weighting import WeightEqually, WeighTarget
 from bt.algos.portfolio_ops import Rebalance
 from bt.algos.flow import RunDaily, RunOnce
 from bt.engine import Backtest
@@ -2079,7 +2079,7 @@ def test_strategy_tree_paper():
         "s",
         [
             SelectWhere(data > 100),
-            WeighEqually(),
+            WeightEqually(),
             Rebalance(),
         ],
     )
@@ -3270,7 +3270,7 @@ def test_strategy_combined_universe_regression():
         [
             RunOnce(),
             SelectAll(),
-            WeighEqually(),
+            WeightEqually(),
             Rebalance(),
         ],
     )
@@ -3280,7 +3280,7 @@ def test_strategy_combined_universe_regression():
         [
             RunOnce(),
             SelectAll(),
-            WeighEqually(),
+            WeightEqually(),
             Rebalance(),
         ],
     )
@@ -3298,7 +3298,7 @@ def test_strategy_combined_universe_regression():
         [
             RunOnce(),
             SelectAll(),
-            WeighEqually(),
+            WeightEqually(),
             Rebalance(),
         ],
         children=[x.strategy for x in tests],

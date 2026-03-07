@@ -1,11 +1,11 @@
-from bt.algos.core import Algo
+from bt.algos.weighting.core import WeightAlgo
 import pandas as pd
 import numpy as np
 import pandas as pd
 import sklearn.covariance
 
 
-class WeighERC(Algo):
+class WeighERC(WeightAlgo):
     """
     Assign portfolio weights using the Equal Risk Contribution (ERC) method.
 

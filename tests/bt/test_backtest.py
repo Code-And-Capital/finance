@@ -12,7 +12,7 @@ from unittest import mock
 from bt.engine import Backtest
 from bt.core.strategy import Strategy
 from bt.algos.selection import SelectAll
-from bt.algos.weighting import WeighEqually, WeighSpecified, WeighTarget
+from bt.algos.weighting import WeightEqually, WeighSpecified, WeighTarget
 from bt.algos.portfolio_ops import Rebalance
 from bt.algos.flow import RunDaily
 import bt
@@ -102,7 +102,7 @@ def test_turnover():
     data.loc[dts[3], "a"] = 115
     data.loc[dts[3], "b"] = 85
 
-    s = Strategy("s", [SelectAll(), WeighEqually(), Rebalance()])
+    s = Strategy("s", [SelectAll(), WeightEqually(), Rebalance()])
 
     t = Backtest(s, data, commissions=lambda x, y: 0, progress_bar=False)
     res = bt.run(t)
@@ -127,7 +127,7 @@ def test_can_disable_progress_bar_from_run():
     data = pd.DataFrame(
         index=pd.date_range("2010-01-01", periods=5), columns=["a", "b"], data=100
     )
-    s = Strategy("test", [SelectAll(), WeighEqually(), Rebalance()])
+    s = Strategy("test", [SelectAll(), WeightEqually(), Rebalance()])
 
     b = Backtest(s, data)
 
@@ -222,7 +222,7 @@ def test_additional_data_boolean_dtype_no_warning():
         index=dts, columns=["signal"], data=[True, False, True, False, True]
     )
 
-    s = Strategy("test", [SelectAll(), WeighEqually(), Rebalance()])
+    s = Strategy("test", [SelectAll(), WeightEqually(), Rebalance()])
 
     # Capture warnings
     with warnings.catch_warnings(record=True) as w:

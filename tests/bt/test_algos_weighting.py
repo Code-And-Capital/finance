@@ -5,13 +5,15 @@ import pandas as pd
 import pytest
 
 from bt.core import Strategy
+from bt.algos.weighting.core import WeightAlgo
+from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 from bt.algos.weighting import (
-    WeighEqually,
+    WeightEqually,
     WeighSpecified,
     ScaleWeights,
     WeighERC,
     WeighTarget,
-    WeighInvVol,
+    WeightInvVol,
     WeighMeanVar,
     WeighRandomly,
     LimitWeights,
@@ -19,8 +21,37 @@ from bt.algos.weighting import (
 )
 
 
+class _DummyWeightAlgo(WeightAlgo):
+    def __call__(self, target):
+        return True
+
+
+def test_weight_algo_to_weight_dict_from_series():
+    algo = _DummyWeightAlgo()
+    weights = pd.Series({"c1": 0.4, "c2": np.nan, "c3": 0.6})
+    out = algo._to_weight_dict(weights)
+    assert out == {"c1": 0.4, "c3": 0.6}
+
+
+def test_weight_algo_write_weights_and_history():
+    algo = _DummyWeightAlgo(track_allocation_history=True)
+    temp = {}
+    now = pd.Timestamp("2020-01-01")
+    out = algo._write_weights(
+        temp,
+        pd.Series({"c1": 0.25, "c2": 0.75}),
+        now=now,
+        record_history=True,
+    )
+    assert out == {"c1": 0.25, "c2": 0.75}
+    assert temp["weights"] == {"c1": 0.25, "c2": 0.75}
+    assert now in algo.allocation_history.index
+    assert algo.allocation_history.loc[now, "c1"] == pytest.approx(0.25)
+    assert algo.allocation_history.loc[now, "c2"] == pytest.approx(0.75)
+
+
 def test_weight_equally():
-    algo = WeighEqually()
+    algo = WeightEqually()
     s = Strategy("s")
 
     dts = pd.date_range("2010-01-01", periods=3)
@@ -36,11 +67,13 @@ def test_weight_equally():
     assert weights["c2"] == 0.5
 
 
-def test_weight_equally_uses_set_and_solve_problem():
-    algo = WeighEqually()
-    algo.set_problem(["c1", "c2", "c3"])
-    algo.solve_problem()
-    assert algo.allocations == {
+def test_weight_equally_uses_set_and_solve():
+    algo = WeightEqually()
+    assert isinstance(algo.optimizer, BaseOptimizer)
+    algo.optimizer.set_problem(["c1", "c2", "c3"])
+    result = algo.optimizer.solve_problem()
+    allocations = result["weights"]
+    assert allocations == {
         "c1": pytest.approx(1 / 3),
         "c2": pytest.approx(1 / 3),
         "c3": pytest.approx(1 / 3),
@@ -48,7 +81,7 @@ def test_weight_equally_uses_set_and_solve_problem():
 
 
 def test_weight_equally_empty_selected_produces_empty_weights():
-    algo = WeighEqually()
+    algo = WeightEqually()
     s = Strategy("s")
     dts = pd.date_range("2010-01-01", periods=1)
     data = pd.DataFrame(index=dts, columns=["c1"], data=100)
@@ -61,7 +94,7 @@ def test_weight_equally_empty_selected_produces_empty_weights():
 
 
 def test_weight_equally_deduplicates_selected_names():
-    algo = WeighEqually()
+    algo = WeightEqually()
     s = Strategy("s")
     dts = pd.date_range("2010-01-01", periods=1)
     data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
@@ -74,7 +107,7 @@ def test_weight_equally_deduplicates_selected_names():
 
 
 def test_weight_equally_returns_false_for_non_list_selected():
-    algo = WeighEqually()
+    algo = WeightEqually()
     s = Strategy("s")
     dts = pd.date_range("2010-01-01", periods=1)
     data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
@@ -86,13 +119,13 @@ def test_weight_equally_returns_false_for_non_list_selected():
 
 
 def test_weight_equally_returns_false_when_temp_missing():
-    algo = WeighEqually()
+    algo = WeightEqually()
     target = mock.MagicMock(spec=[])
     assert not algo(target)
 
 
 def test_weight_equally_records_allocation_history_with_loc():
-    algo = WeighEqually()
+    algo = WeightEqually()
     s = Strategy("s")
     dts = pd.date_range("2010-01-01", periods=2)
     data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
@@ -181,31 +214,77 @@ def test_weigh_target():
 
 
 def test_weigh_inv_vol():
-    algo = WeighInvVol(lookback=pd.DateOffset(days=5))
+    algo = WeightInvVol()
 
     s = Strategy("s")
-    dts = pd.date_range("2010-01-01", periods=5)
+    dts = pd.date_range("2010-01-01", periods=1)
     data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
 
-    data.loc[dts[1], "c1"] = 105
-    data.loc[dts[2], "c1"] = 95
-    data.loc[dts[3], "c1"] = 105
-    data.loc[dts[4], "c1"] = 95
-
-    data.loc[dts[1], "c2"] = 100.1
-    data.loc[dts[2], "c2"] = 99.9
-    data.loc[dts[3], "c2"] = 100.1
-    data.loc[dts[4], "c2"] = 99.9
-
     s.setup(data)
-    s.update(dts[4])
+    s.update(dts[0])
     s.temp["selected"] = ["c1", "c2"]
+    s.temp["covariance"] = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.0004]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
 
     assert algo(s)
     weights = s.temp["weights"]
     assert weights["c2"] > weights["c1"]
-    assert weights["c1"] == pytest.approx(0.020, 3)
-    assert weights["c2"] == pytest.approx(0.980, 3)
+    assert weights["c1"] == pytest.approx(0.091, 3)
+    assert weights["c2"] == pytest.approx(0.909, 3)
+
+
+def test_weight_inv_vol_set_and_solve():
+    algo = WeightInvVol()
+    assert isinstance(algo.optimizer, BaseOptimizer)
+    cov = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.01]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
+    algo.optimizer.set_problem(cov)
+    result = algo.optimizer.solve_problem()
+    weights = result["weights"]
+    assert set(weights.keys()) == {"c1", "c2"}
+    assert weights["c1"] == pytest.approx(1.0 / 3.0)
+    assert weights["c2"] == pytest.approx(2.0 / 3.0)
+
+
+def test_weigh_inv_vol_returns_false_for_invalid_context():
+    algo = WeightInvVol()
+    target = mock.MagicMock(spec=[])
+    assert not algo(target)
+
+
+def test_weight_inv_vol_empty_selected_records_history_row():
+    algo = WeightInvVol()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = []
+    s.temp["covariance"] = pd.DataFrame([[1.0]], index=["c1"], columns=["c1"])
+
+    assert algo(s)
+    assert s.temp["weights"] == {}
+    assert dts[0] in algo.allocation_history.index
+
+
+def test_weight_inv_vol_raises_on_invalid_covariance_type():
+    algo = WeightInvVol()
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = ["c1", "c2"]
+    s.temp["covariance"] = "not-a-dataframe"
+
+    with pytest.raises(TypeError, match="covariance"):
+        algo(s)
 
 
 @mock.patch.object(WeighMeanVar, "calc_mean_var_weights")

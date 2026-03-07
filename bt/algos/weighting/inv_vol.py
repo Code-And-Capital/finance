@@ -1,146 +1,102 @@
-from bt.algos.core import Algo
-import pandas as pd
+from __future__ import annotations
+
+from typing import Any
+
 import numpy as np
+import pandas as pd
+
+from bt.algos.weighting.core import WeightAlgo
+from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
+from bt.algos.weighting.optimizers.validators import (
+    resolve_selected_covariance,
+    validate_square_covariance_matrix,
+)
 
 
-class WeighInvVol(Algo):
-    """
-    Algo that sets target weights using the inverse-volatility method.
+class InvVolOptimizer(BaseOptimizer):
+    """Optimizer that solves inverse-volatility allocations."""
 
-    This technique is widely used in risk-parity and volatility-weighted
-    portfolio construction. Assets with lower volatility (over the lookback
-    window) receive higher weights, proportional to 1 / volatility.
-
-    The algo looks back a specified period, computes returns of each selected
-    asset, and calculates inverse-volatility weights using:
-        `ffn.calc_inv_vol_weights()`
-
-    Parameters
-    ----------
-    lookback : pd.DateOffset, optional
-        Length of the lookback window for estimating volatility.
-        Defaults to a 3-month lookback.
-    lag : pd.DateOffset, optional
-        Amount to lag the reference date (useful for avoiding lookahead bias
-        when today's prices are unknown). Defaults to 0 days.
-
-    Sets
-    ----
-    weights : dict or Series
-        Stored in `target.temp["weights"]`.
-
-    Requires
-    --------
-    selected : list[str]
-        List of tickers selected by prior steps in the strategy.
-    """
-
-    def __init__(
-        self,
-        lookback: pd.DateOffset = pd.DateOffset(months=3),
-        lag: pd.DateOffset = pd.DateOffset(days=0),
-    ):
-        """
-        Initialize the inverse-volatility weighting algo.
-
-        Parameters
-        ----------
-        lookback : pd.DateOffset
-            Lookback period used for volatility estimation.
-        lag : pd.DateOffset
-            Lag applied to the current date before sampling price data.
-        """
+    def __init__(self) -> None:
         super().__init__()
-        self.lookback = lookback
-        self.lag = lag
 
-    def calc_inv_vol_weights(self, returns: pd.DataFrame) -> pd.Series:
+    def set_problem(self, covariance: Any, selected: list[str] | None = None) -> None:
+        """Store covariance matrix for inverse-volatility solve.
+
+        When ``selected`` is provided, covariance is subsetted to that universe.
         """
-        Compute portfolio weights proportional to the inverse of asset volatility.
+        validate_square_covariance_matrix(covariance, "InvVolOptimizer")
+        if selected is not None:
+            covariance = resolve_selected_covariance(covariance, selected)
+        self.set_problem_data(covariance=covariance, assets=list(covariance.columns))
 
-        This method is commonly used in risk parity and inverse-volatility portfolios.
-        Each asset's weight is proportional to 1 / std_dev(asset_returns), ensuring
-        that less volatile assets receive higher weights.
+    def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Solve inverse-volatility allocation and return standard result payload."""
+        covariance = self.problem_data.get("covariance")
+        assets = self.problem_data.get("assets", [])
 
-        Assets with constant returns (zero volatility) or all NaNs are assigned NaN
-        weights and excluded from the portfolio.
+        if covariance is None or covariance.empty:
+            allocations: dict[str, float] = {}
+        else:
+            diagonal = np.diag(covariance.to_numpy(dtype=float, copy=True))
+            vol = np.sqrt(diagonal)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                inv_vol = np.where(np.isfinite(vol) & (vol > 0.0), 1.0 / vol, np.nan)
 
-        Parameters
-        ----------
-        returns : pd.DataFrame
-            DataFrame of asset returns, with columns representing assets and rows
-            representing time periods.
+            inv_vol_sum = np.nansum(inv_vol)
+            if not np.isfinite(inv_vol_sum) or inv_vol_sum <= 0.0:
+                allocations = {}
+            else:
+                weights = inv_vol / inv_vol_sum
+                allocations = {
+                    asset: float(weight)
+                    for asset, weight in zip(assets, weights)
+                    if np.isfinite(weight)
+                }
 
-        Returns
-        -------
-        pd.Series
-            Series of weights indexed by asset name, summing to 1 for all valid
-            assets. Assets with undefined volatility are assigned NaN.
-        """
-        # Compute standard deviation (volatility) per column
-        std_vol = returns.std(ddof=1)
+        self.weights_ = allocations
+        self.success = True
+        self.status = "optimal"
+        self.message = "Solved analytically."
+        return self.get_result()
 
-        # Compute inverse volatility
-        inv_vol = 1.0 / std_vol
 
-        # Replace infinite values (from zero volatility) with NaN
-        inv_vol.replace([np.inf, -np.inf], np.nan, inplace=True)
+class WeightInvVol(WeightAlgo):
+    """Allocate weights proportional to inverse asset volatility.
 
-        # Normalize to sum to 1
-        total_inv_vol = inv_vol.sum(skipna=True)
-        weights = inv_vol / total_inv_vol
+    This assigner expects a covariance matrix in ``temp['covariance']`` and
+    selected names in ``temp['selected']``. The optimizer assigns:
+    ``w_i ∝ 1 / sigma_i``.
+    """
 
-        return weights
+    def __init__(self) -> None:
+        """Initialize inverse-volatility weighting assigner."""
+        super().__init__()
+        self.optimizer = InvVolOptimizer()
 
-    def __call__(self, target) -> bool:
-        """
-        Compute inverse-volatility weights for the currently selected assets.
+    def __call__(self, target: Any) -> bool:
+        """Compute and store inverse-volatility weights in ``temp['weights']``."""
+        temp = self._resolve_temp(target)
+        if temp is None:
+            return False
+        now = self._resolve_now(target)
 
-        Parameters
-        ----------
-        target : StrategyBase
-            Strategy context object, providing:
-            - `target.now`: current timestamp
-            - `target.temp["selected"]`: list of tickers selected
-            - `target.universe`: historical pricing DataFrame
-
-        Returns
-        -------
-        bool
-            Always returns True after setting weights (even if empty).
-        """
-        selected = target.temp.get("selected", [])
-
-        # No assets selected → no weights
-        if not selected:
-            target.temp["weights"] = {}
+        selected_raw = temp.get("selected", [])
+        if not isinstance(selected_raw, list):
+            return False
+        if not selected_raw:
+            self._write_weights(temp, {})
+            self._record_allocation_history(now, {})
+            return True
+        if len(selected_raw) == 1:
+            weights = {selected_raw[0]: 1.0}
+            self._write_weights(temp, weights)
+            self._record_allocation_history(now, weights)
             return True
 
-        # Only one asset → full weight
-        if len(selected) == 1:
-            target.temp["weights"] = {selected[0]: 1.0}
-            return True
-
-        # Calculate reference date with possible lag
-        ref_date = target.now - self.lag
-
-        # Extract price history for the lookback window
-        price_window = target.universe.loc[
-            ref_date - self.lookback : ref_date, selected
-        ]
-
-        # Convert to returns, drop NaNs, compute inverse-vol weights
-        returns = price_window.pct_change().iloc[1:]
-
-        if returns.empty:
-            # Safeguard: if there's no valid return data, fall back to equal weights
-            w = 1.0 / len(selected)
-            target.temp["weights"] = {x: w for x in selected}
-            return True
-
-        inv_vol_weights = self.calc_inv_vol_weights(returns).dropna()
-
-        # Save final weights
-        target.temp["weights"] = inv_vol_weights.to_dict()
-
+        covariance = temp.get("covariance")
+        self.optimizer.set_problem(covariance, selected_raw)
+        result = self.optimizer.solve_problem()
+        weights = result["weights"]
+        self._write_weights(temp, weights)
+        self._record_allocation_history(now, weights)
         return True

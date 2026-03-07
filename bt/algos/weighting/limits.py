@@ -1,10 +1,10 @@
-from bt.algos.core import Algo
 import numpy as np
 import pandas as pd
 from typing import Union
+from bt.algos.weighting.core import WeightAlgo
 
 
-class LimitDeltas(Algo):
+class LimitDeltas(WeightAlgo):
     """
     Restrict the change in portfolio weights from one period to the next.
 
@@ -77,7 +77,7 @@ class LimitDeltas(Algo):
         return True
 
 
-class LimitWeights(Algo):
+class LimitWeights(WeightAlgo):
     """
     Restrict the maximum weight of any single asset in the portfolio.
 

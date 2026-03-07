@@ -1,8 +1,8 @@
-from bt.algos.core import Algo
 import pandas as pd
+from bt.algos.weighting.core import WeightAlgo
 
 
-class WeighSpecified(Algo):
+class WeighSpecified(WeightAlgo):
     """
     Algo that assigns portfolio weights based on a user-provided mapping.
 
@@ -48,7 +48,7 @@ class WeighSpecified(Algo):
         return True
 
 
-class WeighTarget(Algo):
+class WeighTarget(WeightAlgo):
     """
     Algo that assigns portfolio target weights from a time-indexed DataFrame.
 

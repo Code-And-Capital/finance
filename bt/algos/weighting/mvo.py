@@ -1,11 +1,11 @@
-from bt.algos.core import Algo
+from bt.algos.weighting.core import WeightAlgo
 import pandas as pd
 import numpy as np
 import sklearn
 from scipy.optimize import minimize
 
 
-class WeighMeanVar(Algo):
+class WeighMeanVar(WeightAlgo):
     """
     Assign portfolio weights using mean-variance (Markowitz) optimization.
 

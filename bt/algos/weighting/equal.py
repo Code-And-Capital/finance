@@ -2,44 +2,54 @@ from __future__ import annotations
 
 from typing import Any
 
-import pandas as pd
+from bt.algos.weighting.core import WeightAlgo
+from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 
-from bt.algos.core import Algo
+
+class EqualWeightOptimizer(BaseOptimizer):
+    """Optimizer that solves equal-weight allocations."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def set_problem(self, universe: list[Any]) -> None:
+        """Set selected universe for equal-weight optimization."""
+        if not isinstance(universe, list):
+            raise TypeError("EqualWeightOptimizer `universe` must be a list.")
+        deduped_universe = list(set(universe))
+        self.set_problem_data(universe=deduped_universe, n_assets=len(deduped_universe))
+
+    def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Solve equal-weight allocation and return standard result payload."""
+        universe = self.problem_data.get("universe", [])
+        n_assets = self.problem_data.get("n_assets", 0)
+        if not isinstance(universe, list) or not isinstance(n_assets, int):
+            raise TypeError("EqualWeightOptimizer problem data is invalid.")
+
+        if n_assets == 0:
+            allocations: dict[Any, float] = {}
+        else:
+            weight = 1.0 / n_assets
+            allocations = {asset: weight for asset in universe}
+
+        self.weights_ = allocations
+        self.success = True
+        self.status = "optimal"
+        self.message = "Solved analytically."
+        return self.get_result()
 
 
-class WeighEqually(Algo):
+class WeightEqually(WeightAlgo):
     """Assign equal weights across selected assets.
 
-    This weighting algo follows a two-step optimizer-style flow:
-    1. ``set_problem`` captures current selected assets.
-    2. ``solve_problem`` computes equal allocations.
-
-    The computed weights are written to ``target.temp['weights']``.
+    This assigner delegates optimization to ``EqualWeightOptimizer`` and writes
+    the resulting weights into ``target.temp['weights']``.
     """
 
     def __init__(self) -> None:
-        """Initialize equal-weighting state containers."""
+        """Initialize assigner and underlying optimizer."""
         super().__init__()
-        self.universe: list[Any] = []
-        self.n: int = 0
-        self.allocations: dict[Any, float] = {}
-        self.allocation_history: pd.DataFrame = pd.DataFrame()
-
-    def set_problem(self, universe: list[Any]) -> None:
-        """Set current selected universe for equal-weight allocation."""
-        if not isinstance(universe, list):
-            raise TypeError("WeighEqually `universe` must be a list.")
-        self.universe = list(dict.fromkeys(universe))
-        self.n = len(self.universe)
-
-    def solve_problem(self) -> None:
-        """Solve equal-weight allocation into ``self.allocations``."""
-        if self.n == 0:
-            self.allocations = {}
-            return
-
-        w = 1.0 / self.n
-        self.allocations = {asset: w for asset in self.universe}
+        self.optimizer = EqualWeightOptimizer()
 
     def __call__(self, target) -> bool:
         """Compute and store equal weights into ``target.temp['weights']``."""
@@ -51,13 +61,11 @@ class WeighEqually(Algo):
         if not isinstance(selected_raw, list):
             return False
 
-        self.set_problem(selected_raw)
-        self.solve_problem()
-        temp["weights"] = self.allocations
+        self.optimizer.set_problem(selected_raw)
+        result = self.optimizer.solve_problem()
+        allocations = result["weights"]
+        self._write_weights(temp, allocations)
 
         now = self._resolve_now(target)
-        if now is not None and self.allocations:
-            self.allocation_history.loc[now, list(self.allocations.keys())] = list(
-                self.allocations.values()
-            )
+        self._record_allocation_history(now, allocations)
         return True
