@@ -1,271 +1,134 @@
-from bt.algos.weighting.core import WeightAlgo
-import pandas as pd
+from __future__ import annotations
+
+from typing import Any
+
+import cvxpy as cvx
 import numpy as np
 import pandas as pd
-import sklearn.covariance
+
+from bt.algos.weighting.core import WeightAlgo
+from bt.algos.weighting.optimizers.constraints import (
+    sum_to_one_constraint,
+)
+from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
+from bt.algos.weighting.optimizers.objectives import risk_parity_objective
+from bt.algos.weighting.optimizers.validators import (
+    resolve_selected_covariance,
+    validate_square_covariance_matrix,
+)
+from bt.algos.weighting.optimizers.variables import (
+    build_covariance_matrix,
+    build_weight_variable,
+)
 
 
-class WeighERC(WeightAlgo):
-    """
-    Assign portfolio weights using the Equal Risk Contribution (ERC) method.
+class RiskParityOptimizer(ConvexOptimizer):
+    """Convex equal-risk-budget optimizer."""
 
-    ERC is an extension of inverse volatility risk parity that incorporates
-    correlations between asset returns. The resulting portfolio allocates
-    weights so that each asset contributes equally to total portfolio risk,
-    subject to diversification constraints.
+    def __init__(self) -> None:
+        super().__init__()
 
-    This approach produces a portfolio with volatility between that of the
-    minimum variance and equally-weighted portfolios (Maillard 2008).
+    def set_problem(
+        self,
+        cov: pd.DataFrame,
+        selected: list[str],
+        **kwargs: Any,
+    ) -> None:
+        """Assemble risk-parity objective and constraints."""
+        self.reset()
+        validate_square_covariance_matrix(cov, "RiskParityOptimizer")
+        cov = resolve_selected_covariance(cov, selected)
 
-    See:
-        https://en.wikipedia.org/wiki/Risk_parity
+        asset_count = len(selected)
+        if asset_count == 0:
+            self.set_problem_data(asset_count=0, universe=[], weights_var=None)
+            self._constraints = []
+            self._objective = lambda: cvx.Maximize(0)
+            return
 
-    Parameters
-    ----------
-    lookback : pd.DateOffset, optional
-        Lookback period for estimating covariance. Default is 3 months.
-    initial_weights : list[float], optional
-        Starting asset weights for the iterative solution. Default is inverse vol.
-    risk_weights : list[float], optional
-        Target risk contribution weights. Default is equal weights.
-    covar_method : str, optional
-        Covariance estimation method. Default 'ledoit-wolf'.
-    maximum_iterations : int, optional
-        Maximum iterations in iterative solution. Default 100.
-    tolerance : float, optional
-        Tolerance level for convergence in iterative solution. Default 1e-8.
-    lag : pd.DateOffset, optional
-        Optional lag applied to the current date (avoids lookahead bias). Default 0 days.
+        cov_matrix = build_covariance_matrix(cov)
+        weights = build_weight_variable(asset_count, self.variable)
+        risk_budgets = np.full(asset_count, 1.0 / asset_count, dtype=float)
 
-    Sets
-    ----
-    weights : dict or pd.Series
-        Stored in `target.temp["weights"]`.
+        self.add_objective(
+            lambda: risk_parity_objective(
+                weights,
+                cov_matrix,
+                risk_budgets,
+                self.minimize,
+            )
+        )
+        self.add_constraint(weights >= 0.0)
+        self.add_constraint(sum_to_one_constraint(weights))
+        self.set_problem_data(
+            universe=selected,
+            asset_count=asset_count,
+            weights_var=weights,
+        )
 
-    Requires
-    --------
-    selected : list[str]
-        List of tickers previously selected by the strategy.
-    """
+    def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Solve risk-parity problem and return weights payload."""
+        asset_count = int(self.problem_data.get("asset_count", 0))
+        universe = self.problem_data.get("universe", [])
+        weights_var = self.problem_data.get("weights_var")
+        if asset_count == 0:
+            self.weights_ = {}
+            self.success = True
+            self.status = "optimal"
+            self.message = "No assets to optimize."
+            return self.get_result()
+        if asset_count == 1:
+            self.weights_ = {universe[0]: 1.0}
+            self.success = True
+            self.status = "optimal"
+            self.message = "Single asset."
+            return self.get_result()
+
+        super().solve_problem(*args, **kwargs)
+        if weights_var is None or weights_var.value is None:
+            raise RuntimeError("RiskParityOptimizer solved without weights.")
+        solved = np.asarray(weights_var.value, dtype=float).reshape(-1)
+        self.weights_ = {
+            asset: float(weight) for asset, weight in zip(universe, solved)
+        }
+        return self.get_result()
+
+
+class WeightRiskParity(WeightAlgo):
+    """Assign ERC/risk-parity weights using covariance from ``temp``."""
 
     def __init__(
         self,
-        lookback: pd.DateOffset = pd.DateOffset(months=3),
-        initial_weights: list[float] | None = None,
-        risk_weights: list[float] | None = None,
-        covar_method: str = "ledoit-wolf",
-        maximum_iterations: int = 100,
-        tolerance: float = 1e-8,
-        lag: pd.DateOffset = pd.DateOffset(days=0),
-    ):
-        """
-        Initialize the ERC weighting algorithm.
-        """
+        covariance_key: str = "covariance",
+    ) -> None:
         super().__init__()
-        self.lookback = lookback
-        self.initial_weights = initial_weights
-        self.risk_weights = risk_weights
-        self.covar_method = covar_method
-        self.maximum_iterations = maximum_iterations
-        self.tolerance = tolerance
-        self.lag = lag
+        self.covariance_key = covariance_key
+        self.optimizer = RiskParityOptimizer()
 
-    def _erc_weights_ccd(
-        self,
-        x0: np.ndarray,
-        cov: np.ndarray,
-        b: np.ndarray,
-        maximum_iterations: int,
-        tolerance: float,
-    ) -> np.ndarray:
-        """
-        Solve the Equal Risk Contribution (ERC) portfolio using Cyclical Coordinate Descent (CCD).
+    def __call__(self, target: Any) -> bool:
+        """Compute and store ERC weights in ``temp['weights']``."""
+        temp = self._resolve_temp(target)
+        if temp is None:
+            return False
+        now = self._resolve_now(target)
 
-        This algorithm finds portfolio weights `x` such that each asset contributes
-        equally to total portfolio risk, given a covariance matrix and target risk
-        contributions.
-
-        Reference:
-            Griveau-Billion, Theophile; Richard, Jean-Charles; Roncalli, Thierry (2013)
-            "A Fast Algorithm for Computing High-Dimensional Risk Parity Portfolios"
-            Available at SSRN: https://ssrn.com/abstract=2325255
-
-        Parameters
-        ----------
-        x0 : np.ndarray
-            Initial guess for asset weights (length n).
-        cov : np.ndarray
-            Covariance matrix of asset returns (n x n).
-        b : np.ndarray
-            Target risk contribution weights (length n).
-        maximum_iterations : int
-            Maximum number of iterations for convergence.
-        tolerance : float
-            Convergence tolerance. Algorithm stops if relative change in weights is below this value.
-
-        Returns
-        -------
-        np.ndarray
-            ERC weights normalized to sum to 1.
-
-        Raises
-        ------
-        ValueError
-            If no solution is found within the maximum number of iterations.
-        """
-        n_assets = len(x0)
-        x = x0.copy()
-        var = np.diagonal(cov)
-        ctr = cov.dot(x)
-        sigma_x = np.sqrt(x.T.dot(ctr))
-
-        for iteration in range(maximum_iterations):
-            for i in range(n_assets):
-                alpha = var[i]
-                beta = ctr[i] - x[i] * alpha
-                gamma = -b[i] * sigma_x
-
-                # Solve quadratic for updated weight
-                x_tilde = (-beta + np.sqrt(beta**2 - 4 * alpha * gamma)) / (2 * alpha)
-                x_i = x[i]
-
-                # Update contributions and portfolio volatility incrementally
-                ctr = ctr - cov[i] * x_i + cov[i] * x_tilde
-                sigma_x = sigma_x**2 - 2 * x_i * cov[i].dot(x) + x_i**2 * var[i]
-                x[i] = x_tilde
-                sigma_x = np.sqrt(
-                    sigma_x + 2 * x_tilde * cov[i].dot(x) - x_tilde**2 * var[i]
-                )
-
-            # Check convergence: relative squared change in weights
-            if np.sum(((x - x0) / x.sum()) ** 2) < tolerance:
-                return x / x.sum()
-
-            x0 = x.copy()
-
-        # Failed to converge
-        raise ValueError(f"No solution found after {maximum_iterations} iterations.")
-
-    def calc_erc_weights(
-        self,
-        returns: pd.DataFrame,
-        initial_weights: np.ndarray | None = None,
-        risk_weights: np.ndarray | None = None,
-        covar_method: str = "ledoit-wolf",
-        maximum_iterations: int = 100,
-        tolerance: float = 1e-8,
-    ) -> pd.Series:
-        """
-        Calculate Equal Risk Contribution (ERC) / risk parity weights for a set of assets.
-
-        ERC weights aim to allocate portfolio risk equally across all assets,
-        considering both volatility and correlation.
-
-        Parameters
-        ----------
-        returns : pd.DataFrame
-            DataFrame of asset returns, with columns as asset tickers.
-        initial_weights : np.ndarray, optional
-            Starting weights for the iterative solution. Default is inverse volatility.
-        risk_weights : np.ndarray, optional
-            Target risk contributions for each asset. Default is equal weights.
-        covar_method : str, optional
-            Covariance estimation method. Options:
-            - "ledoit-wolf" (default): shrinkage estimator
-            - "standard": sample covariance
-        risk_parity_method : str, optional
-            Risk parity solver. Options:
-            - "ccd" (default): cyclical coordinate descent
-            - "slsqp": SciPy's Sequential Least Squares Programming
-        maximum_iterations : int, optional
-            Maximum iterations for iterative solvers. Default 100.
-        tolerance : float, optional
-            Convergence tolerance for iterative solvers. Default 1e-8.
-
-        Returns
-        -------
-        pd.Series
-            ERC weights indexed by asset names.
-
-        Raises
-        ------
-        NotImplementedError
-            If `covar_method` or `risk_parity_method` is not supported.
-        """
-        n_assets = len(returns.columns)
-
-        # Compute covariance matrix
-        if covar_method == "ledoit-wolf":
-            covar = sklearn.covariance.ledoit_wolf(returns)[0]
-        elif covar_method == "standard":
-            covar = returns.cov().values
-        else:
-            raise NotImplementedError(f"covar_method '{covar_method}' not implemented.")
-
-        # Default initial weights to inverse volatility
-        if initial_weights is None:
-            inv_vol = 1.0 / np.sqrt(np.diagonal(covar))
-            initial_weights = inv_vol / inv_vol.sum()
-
-        # Default target risk contributions to equal
-        if risk_weights is None:
-            risk_weights = np.ones(n_assets) / n_assets
-
-        # Solve for ERC weights
-        erc_weights = self._erc_weights_ccd(
-            initial_weights, covar, risk_weights, maximum_iterations, tolerance
-        )
-
-        return pd.Series(erc_weights, index=returns.columns, name="erc")
-
-    def __call__(self, target) -> bool:
-        """
-        Compute ERC weights for the currently selected assets.
-
-        Parameters
-        ----------
-        target : StrategyBase
-            Strategy context with attributes:
-            - `target.temp["selected"]`: list of tickers
-            - `target.universe`: price history DataFrame
-
-        Returns
-        -------
-        bool
-            True after setting ERC weights in `target.temp["weights"]`.
-        """
-        selected = target.temp.get("selected", [])
-
-        # No assets selected
-        if not selected:
-            target.temp["weights"] = {}
+        selected_raw = temp.get("selected", [])
+        if not isinstance(selected_raw, list):
+            return False
+        if not selected_raw:
+            self._write_weights(temp, {})
+            self._record_allocation_history(now, {})
+            return True
+        if len(selected_raw) == 1:
+            weights = {selected_raw[0]: 1.0}
+            self._write_weights(temp, weights)
+            self._record_allocation_history(now, weights)
             return True
 
-        # Single asset → full weight
-        if len(selected) == 1:
-            target.temp["weights"] = {selected[0]: 1.0}
-            return True
-
-        # Reference date with lag applied
-        ref_date = target.now - self.lag
-
-        # Extract relevant price history
-        price_window = target.universe.loc[
-            ref_date - self.lookback : ref_date, selected
-        ]
-
-        returns = price_window.pct_change().iloc[1:]
-
-        # Compute ERC weights using ffn utility
-        erc_weights = self.calc_erc_weights(
-            returns,
-            initial_weights=self.initial_weights,
-            risk_weights=self.risk_weights,
-            covar_method=self.covar_method,
-            maximum_iterations=self.maximum_iterations,
-            tolerance=self.tolerance,
-        ).dropna()
-
-        target.temp["weights"] = erc_weights.to_dict()
-
+        covariance = temp.get(self.covariance_key)
+        self.optimizer.set_problem(covariance, selected_raw)
+        result = self.optimizer.solve_problem()
+        weights = result["weights"]
+        self._write_weights(temp, weights)
+        self._record_allocation_history(now, weights)
         return True

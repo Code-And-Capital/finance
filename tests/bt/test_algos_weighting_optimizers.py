@@ -9,7 +9,10 @@ from bt.algos.weighting.optimizers.constraints import (
     sum_to_one_constraint,
 )
 from bt.algos.weighting.optimizers.objectives import negative_sharpe_ratio
-from bt.algos.weighting.optimizers.objectives import mean_variance_utility_objective
+from bt.algos.weighting.optimizers.objectives import (
+    mean_variance_utility_objective,
+    risk_parity_objective,
+)
 from bt.algos.weighting.optimizers.validators import (
     resolve_selected_covariance,
     validate_bounds,
@@ -18,6 +21,7 @@ from bt.algos.weighting.optimizers.validators import (
 )
 from bt.algos.weighting.mean_variance import MeanVarianceOptimizer
 from bt.algos.weighting.random import RandomWeightOptimizer
+from bt.algos.weighting.risk_parity import RiskParityOptimizer
 import bt.algos.weighting.optimizers.convex_optimizer as convex_mod
 import cvxpy as cvx
 
@@ -303,6 +307,19 @@ def test_mean_variance_utility_objective_builder():
     assert isinstance(obj, cvx.Maximize)
 
 
+def test_risk_parity_objective_builder():
+    w = cvx.Variable(2)
+    cov = np.array([[0.04, 0.0], [0.0, 0.09]])
+    budgets = np.array([0.5, 0.5])
+    obj = risk_parity_objective(
+        w,
+        cov,
+        budgets,
+        minimize_builder=cvx.Minimize,
+    )
+    assert isinstance(obj, cvx.Minimize)
+
+
 def test_mean_variance_constraints_builders():
     w = cvx.Variable(2)
     box = bound_constraints(
@@ -408,3 +425,34 @@ def test_random_weight_optimizer_rejects_infeasible_problem():
     opt.set_problem(["c1", "c2", "c3"])
     with pytest.raises(ValueError, match="infeasible problem"):
         opt.solve_problem()
+
+
+def test_risk_parity_optimizer_set_and_solve():
+    covariance = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.01]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
+    opt = RiskParityOptimizer()
+    opt.set_problem(covariance, ["c1", "c2"])
+    result = opt.solve_problem()
+    assert result["success"] is True
+    weights = result["weights"]
+    assert set(weights.keys()) == {"c1", "c2"}
+    assert sum(weights.values()) == pytest.approx(1.0)
+
+
+def test_risk_parity_optimizer_single_asset():
+    covariance = pd.DataFrame([[0.04]], index=["c1"], columns=["c1"])
+    opt = RiskParityOptimizer()
+    opt.set_problem(covariance, ["c1"])
+    result = opt.solve_problem()
+    assert result["weights"] == {"c1": pytest.approx(1.0)}
+
+
+def test_risk_parity_optimizer_empty_after_selection():
+    covariance = pd.DataFrame([[0.04]], index=["c1"], columns=["c1"])
+    opt = RiskParityOptimizer()
+    opt.set_problem(covariance, [])
+    result = opt.solve_problem()
+    assert result["weights"] == {}

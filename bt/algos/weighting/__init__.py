@@ -12,7 +12,7 @@ Available Algos:
 - WeightInvVol
 - WeightMarket
 - WeightRandomly
-- WeighERC
+- WeightRiskParity
 - WeightMeanVar
 - TargetVol
 - LimitDeltas
@@ -27,7 +27,7 @@ from .specified import WeighTarget
 from .inv_vol import WeightInvVol
 from .market import WeightMarket
 from .random import WeightRandomly
-from .risk_parity import WeighERC
+from .risk_parity import WeightRiskParity
 from .mean_variance import WeightMeanVar
 from .target_vol import TargetVol
 from .limits import LimitDeltas
@@ -42,7 +42,7 @@ __all__ = [
     "WeightInvVol",
     "WeightMarket",
     "WeightRandomly",
-    "WeighERC",
+    "WeightRiskParity",
     "WeightMeanVar",
     "TargetVol",
     "LimitDeltas",

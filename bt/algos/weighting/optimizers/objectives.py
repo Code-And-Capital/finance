@@ -31,3 +31,15 @@ def mean_variance_utility_objective(
     return_term = weights.T @ expected_returns
     risk_term = cvx.quad_form(weights, covariance)
     return maximize_builder(return_term - risk_averse_lambda * risk_term)
+
+
+def risk_parity_objective(
+    weights: cvx.Variable,
+    covariance,
+    risk_budgets: np.ndarray,
+    minimize_builder,
+):
+    """Build CVXPY minimize objective for risk-parity optimization."""
+    return minimize_builder(
+        0.5 * cvx.quad_form(weights, covariance) - risk_budgets @ cvx.log(weights)
+    )

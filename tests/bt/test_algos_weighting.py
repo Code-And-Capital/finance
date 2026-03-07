@@ -11,7 +11,7 @@ from bt.algos.weighting import (
     WeightEqually,
     WeighSpecified,
     ScaleWeights,
-    WeighERC,
+    WeightRiskParity,
     WeighTarget,
     WeightInvVol,
     WeightMarket,
@@ -171,23 +171,26 @@ def test_scale_weights():
     assert s.temp["weights"] == {"c1": -0.25, "c2": 0.2, "c3": 0}
 
 
-@mock.patch.object(WeighERC, "calc_erc_weights")
-def test_weigh_erc(mock_erc):
-    algo = WeighERC(lookback=pd.DateOffset(days=5))
-    mock_erc.return_value = pd.Series({"c1": 0.3, "c2": 0.7})
-
+def test_weigh_erc():
+    algo = WeightRiskParity()
     s = Strategy("s")
-    dts = pd.date_range("2010-01-01", periods=5)
+    dts = pd.date_range("2010-01-01", periods=1)
     data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
 
     s.setup(data)
-    s.update(dts[4])
+    s.update(dts[0])
     s.temp["selected"] = ["c1", "c2"]
+    s.temp["covariance"] = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.0004]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
 
     assert algo(s)
-    rets = mock_erc.call_args[0][0]
-    assert len(rets) == 4
-    assert s.temp["weights"] == {"c1": 0.3, "c2": 0.7}
+    weights = s.temp["weights"]
+    assert set(weights.keys()) == {"c1", "c2"}
+    assert sum(weights.values()) == pytest.approx(1.0)
+    assert weights["c2"] > weights["c1"]
 
 
 def test_weigh_target():
