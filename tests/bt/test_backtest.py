@@ -12,7 +12,7 @@ from unittest import mock
 from bt.engine import Backtest
 from bt.core.strategy import Strategy
 from bt.algos.selection import SelectAll
-from bt.algos.weighting import WeightEqually, WeighSpecified, WeighTarget
+from bt.algos.weighting import WeightEqually, WeightFixed, WeightFixedSchedule
 from bt.algos.portfolio_ops import Rebalance
 from bt.algos.flow import RunDaily
 import bt
@@ -163,7 +163,7 @@ def test_Results_helper_functions():
     #  it will only run when runMonthlyAlgo returns true
     #  which only happens on the first of every month
     weights = pd.Series([0.6, 0.4], index=rdf.columns)
-    weighSpecifiedAlgo = WeighSpecified(**weights)
+    weighSpecifiedAlgo = WeightFixed(**weights)
 
     # algo to rebalance the current weights to weights set by weighSpecified
     #  will only run when weighSpecifiedAlgo returns true
@@ -203,7 +203,7 @@ def test_30_min_data():
     tw[sma50 <= sma200] = -1.0
     tw[sma200.isnull()] = 0.0
 
-    ma_cross = Strategy("ma_cross", [WeighTarget(tw), Rebalance()])
+    ma_cross = Strategy("ma_cross", [WeightFixedSchedule(tw), Rebalance()])
     t = Backtest(ma_cross, pdf, progress_bar=False)
     res = bt.run(t)
 

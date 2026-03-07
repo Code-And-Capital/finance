@@ -22,15 +22,10 @@ class LimitDeltas(WeightAlgo):
         Maximum allowed weight change per asset. If float, applies globally.
         If dict, specifies per-asset limits.
 
-    Updates
-    -------
-    temp['weights'] : dict
-        Adjusted target weights respecting delta limits.
-
-    Requires
-    --------
-    temp['weights'] : dict
-        Initial target weights before applying delta limits.
+    Side Effects
+    ------------
+    Updates ``target.temp['weights']`` in place with clipped deltas and
+    normalization.
     """
 
     def __init__(self, limit: float | dict = 0.1):
@@ -50,7 +45,7 @@ class LimitDeltas(WeightAlgo):
         Returns
         -------
         bool
-            Always True after applying limits.
+            ``True`` after applying delta limits.
         """
         tw = target.temp.get("weights", {})
         all_keys = set(target.children.keys()).union(tw.keys())
@@ -97,15 +92,9 @@ class LimitWeights(WeightAlgo):
     limit : float
         Maximum weight allowed for any asset.
 
-    Updates
-    -------
-    temp['weights'] : dict or pd.Series
-        Adjusted weights respecting the maximum limit.
-
-    Requires
-    --------
-    temp['weights'] : dict or pd.Series
-        Initial target weights.
+    Side Effects
+    ------------
+    Rewrites ``target.temp['weights']`` to satisfy the configured max weight.
     """
 
     def __init__(self, limit: float = 0.1):
@@ -169,7 +158,8 @@ class LimitWeights(WeightAlgo):
         Returns
         -------
         bool
-            Always True after applying limits.
+            ``True`` when logic was processed, ``False`` for invalid weight
+            input type.
         """
         tw = target.temp.get("weights")
         if tw is None:

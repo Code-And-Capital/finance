@@ -8,13 +8,13 @@ import pytest
 from bt.core import Strategy
 from bt.algos.capital import CapitalFlow, Margin
 from bt.algos.portfolio_ops import Rebalance
-from bt.algos.weighting import WeighSpecified
+from bt.algos.weighting import WeightFixed
 
 
 def test_margin():
     algo = Margin(0.1, 0.66666666667)
 
-    s = Strategy("s", algos=[WeighSpecified(c1=2), Rebalance()])
+    s = Strategy("s", algos=[WeightFixed(c1=2), Rebalance()])
 
     dts = pd.date_range("2010-01-01", periods=3)
     data = pd.DataFrame(index=dts, columns=["c1"], data=1)

@@ -24,7 +24,12 @@ from bt.algos.weighting.optimizers.variables import (
 
 
 class RiskParityOptimizer(ConvexOptimizer):
-    """Convex equal-risk-budget optimizer."""
+    """Convex equal-risk-budget (risk parity) optimizer.
+
+    Optimizes:
+    ``min_w (0.5 * w^T Sigma w - b^T log(w))``
+    with equal budgets ``b`` and constraints ``w >= 0``, ``sum(w)=1``.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -35,7 +40,7 @@ class RiskParityOptimizer(ConvexOptimizer):
         selected: list[str],
         **kwargs: Any,
     ) -> None:
-        """Assemble risk-parity objective and constraints."""
+        """Build risk-parity CVXPY problem for selected assets."""
         self.reset()
         validate_square_covariance_matrix(cov, "RiskParityOptimizer")
         cov = resolve_selected_covariance(cov, selected)
@@ -68,7 +73,7 @@ class RiskParityOptimizer(ConvexOptimizer):
         )
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve risk-parity problem and return weights payload."""
+        """Solve risk-parity optimization and return weights payload."""
         asset_count = int(self.problem_data.get("asset_count", 0))
         universe = self.problem_data.get("universe", [])
         weights_var = self.problem_data.get("weights_var")
@@ -96,7 +101,12 @@ class RiskParityOptimizer(ConvexOptimizer):
 
 
 class WeightRiskParity(WeightAlgo):
-    """Assign ERC/risk-parity weights using covariance from ``temp``."""
+    """Assign ERC/risk-parity weights from strategy ``temp`` state.
+
+    Inputs expected in ``target.temp``:
+    - ``selected``: names to allocate
+    - covariance at ``self.covariance_key`` (default ``covariance``)
+    """
 
     def __init__(
         self,
@@ -107,7 +117,7 @@ class WeightRiskParity(WeightAlgo):
         self.optimizer = RiskParityOptimizer()
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store ERC weights in ``temp['weights']``."""
+        """Compute and store risk-parity weights."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -117,19 +127,16 @@ class WeightRiskParity(WeightAlgo):
         if not isinstance(selected_raw, list):
             return False
         if not selected_raw:
-            self._write_weights(temp, {})
-            self._record_allocation_history(now, {})
+            self._write_weights(temp, {}, now=now, record_history=True)
             return True
         if len(selected_raw) == 1:
             weights = {selected_raw[0]: 1.0}
-            self._write_weights(temp, weights)
-            self._record_allocation_history(now, weights)
+            self._write_weights(temp, weights, now=now, record_history=True)
             return True
 
         covariance = temp.get(self.covariance_key)
         self.optimizer.set_problem(covariance, selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]
-        self._write_weights(temp, weights)
-        self._record_allocation_history(now, weights)
+        self._write_weights(temp, weights, now=now, record_history=True)
         return True

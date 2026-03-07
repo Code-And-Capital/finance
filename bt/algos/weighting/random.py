@@ -11,7 +11,12 @@ from bt.algos.weighting.optimizers.validators import validate_bounds
 
 
 class RandomWeightOptimizer(BaseOptimizer):
-    """Optimizer that samples feasible random weights under box bounds."""
+    """Analytical random-weight optimizer with box constraints.
+
+    This optimizer samples one feasible random allocation vector subject to:
+    - per-asset lower/upper bounds
+    - sum of weights equal to 1
+    """
 
     def __init__(
         self,
@@ -26,7 +31,7 @@ class RandomWeightOptimizer(BaseOptimizer):
         self,
         selected: list[str],
     ) -> None:
-        """Store selected assets for random-weight solve."""
+        """Store selected assets and derived bound vectors for sampling."""
         self.reset()
         assets = list(set(selected))
         n_assets = len(assets)
@@ -41,7 +46,7 @@ class RandomWeightOptimizer(BaseOptimizer):
         )
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve random-weight allocation and return standard result payload."""
+        """Sample a feasible random allocation and return standard payload."""
         assets = self.problem_data.get("assets", [])
         asset_count = self.problem_data.get("asset_count", 0)
         min_weights = self.problem_data.get("min_weights")
@@ -93,7 +98,7 @@ class WeightRandomly(WeightAlgo):
         )
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store random weights in ``temp['weights']``."""
+        """Compute and store random weights for the current strategy state."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -103,18 +108,15 @@ class WeightRandomly(WeightAlgo):
         if not isinstance(selected_raw, list):
             return False
         if not selected_raw:
-            self._write_weights(temp, {})
-            self._record_allocation_history(now, {})
+            self._write_weights(temp, {}, now=now, record_history=True)
             return True
         if len(selected_raw) == 1:
             weights = {selected_raw[0]: 1.0}
-            self._write_weights(temp, weights)
-            self._record_allocation_history(now, weights)
+            self._write_weights(temp, weights, now=now, record_history=True)
             return True
 
         self.optimizer.set_problem(selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]
-        self._write_weights(temp, weights)
-        self._record_allocation_history(now, weights)
+        self._write_weights(temp, weights, now=now, record_history=True)
         return True

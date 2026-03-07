@@ -14,15 +14,24 @@ from bt.algos.weighting.optimizers.validators import (
 
 
 class InvVolOptimizer(BaseOptimizer):
-    """Optimizer that solves inverse-volatility allocations."""
+    """Analytical inverse-volatility optimizer.
+
+    For valid covariance input, this optimizer sets:
+    ``w_i ∝ 1 / sqrt(cov_ii)``.
+    """
 
     def __init__(self) -> None:
         super().__init__()
 
     def set_problem(self, covariance: Any, selected: list[str] | None = None) -> None:
-        """Store covariance matrix for inverse-volatility solve.
+        """Validate and store covariance input for optimization.
 
-        When ``selected`` is provided, covariance is subsetted to that universe.
+        Parameters
+        ----------
+        covariance
+            Covariance matrix of asset returns.
+        selected
+            Optional selected universe used to subset covariance.
         """
         self.reset()
         validate_square_covariance_matrix(covariance, "InvVolOptimizer")
@@ -31,7 +40,7 @@ class InvVolOptimizer(BaseOptimizer):
         self.set_problem_data(covariance=covariance, assets=list(covariance.columns))
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve inverse-volatility allocation and return standard result payload."""
+        """Compute inverse-volatility weights and return result metadata."""
         covariance = self.problem_data.get("covariance")
         assets = self.problem_data.get("assets", [])
 
@@ -62,20 +71,26 @@ class InvVolOptimizer(BaseOptimizer):
 
 
 class WeightInvVol(WeightAlgo):
-    """Allocate weights proportional to inverse asset volatility.
+    """Assign inverse-volatility weights from strategy ``temp`` state.
 
-    This assigner expects a covariance matrix in ``temp['covariance']`` and
-    selected names in ``temp['selected']``. The optimizer assigns:
-    ``w_i ∝ 1 / sigma_i``.
+    Inputs expected in ``target.temp``:
+    - ``selected``: list of names to allocate.
+    - ``covariance``: covariance matrix aligned to candidate names.
     """
 
     def __init__(self) -> None:
-        """Initialize inverse-volatility weighting assigner."""
+        """Initialize inverse-volatility assigner."""
         super().__init__()
         self.optimizer = InvVolOptimizer()
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store inverse-volatility weights in ``temp['weights']``."""
+        """Compute and store inverse-volatility weights.
+
+        Returns
+        -------
+        bool
+            ``True`` when processed, ``False`` for invalid context/state.
+        """
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -85,19 +100,16 @@ class WeightInvVol(WeightAlgo):
         if not isinstance(selected_raw, list):
             return False
         if not selected_raw:
-            self._write_weights(temp, {})
-            self._record_allocation_history(now, {})
+            self._write_weights(temp, {}, now=now, record_history=True)
             return True
         if len(selected_raw) == 1:
             weights = {selected_raw[0]: 1.0}
-            self._write_weights(temp, weights)
-            self._record_allocation_history(now, weights)
+            self._write_weights(temp, weights, now=now, record_history=True)
             return True
 
         covariance = temp.get("covariance")
         self.optimizer.set_problem(covariance, selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]
-        self._write_weights(temp, weights)
-        self._record_allocation_history(now, weights)
+        self._write_weights(temp, weights, now=now, record_history=True)
         return True

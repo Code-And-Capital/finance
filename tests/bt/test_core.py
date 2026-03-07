@@ -21,7 +21,7 @@ from bt.core.security import (
 from bt.core.strategy import StrategyBase, Strategy
 from bt.algos.core import AlgoStack
 from bt.algos.selection import SelectWhere, SelectAll
-from bt.algos.weighting import WeightEqually, WeighTarget
+from bt.algos.weighting import WeightEqually, WeightFixedSchedule
 from bt.algos.portfolio_ops import Rebalance
 from bt.algos.flow import RunDaily, RunOnce
 from bt.engine import Backtest
@@ -2512,7 +2512,7 @@ def test_securitybase_allocate_commisions():
 
     s1 = Strategy(
         "long_short",
-        [WeighTarget(tw), RunDaily(), Rebalance()],
+        [WeightFixedSchedule(tw), RunDaily(), Rebalance()],
     )
 
     ####now we create the Backtest , commissions=(lambda q, p: abs(p * q) * comms)

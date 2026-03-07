@@ -7,13 +7,22 @@ from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 
 
 class EqualWeightOptimizer(BaseOptimizer):
-    """Optimizer that solves equal-weight allocations."""
+    """Analytical optimizer for equal-weight portfolios.
+
+    Given a selected universe, each asset receives ``1 / n_assets``.
+    """
 
     def __init__(self) -> None:
         super().__init__()
 
     def set_problem(self, universe: list[Any]) -> None:
-        """Set selected universe for equal-weight optimization."""
+        """Store the selected universe for solving.
+
+        Parameters
+        ----------
+        universe
+            Candidate asset names.
+        """
         self.reset()
         if not isinstance(universe, list):
             raise TypeError("EqualWeightOptimizer `universe` must be a list.")
@@ -21,7 +30,7 @@ class EqualWeightOptimizer(BaseOptimizer):
         self.set_problem_data(universe=deduped_universe, n_assets=len(deduped_universe))
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve equal-weight allocation and return standard result payload."""
+        """Compute equal weights and return a standard optimizer payload."""
         universe = self.problem_data.get("universe", [])
         n_assets = self.problem_data.get("n_assets", 0)
         if not isinstance(universe, list) or not isinstance(n_assets, int):
@@ -41,19 +50,29 @@ class EqualWeightOptimizer(BaseOptimizer):
 
 
 class WeightEqually(WeightAlgo):
-    """Assign equal weights across selected assets.
+    """Assign equal weights across ``temp['selected']``.
 
-    This assigner delegates optimization to ``EqualWeightOptimizer`` and writes
-    the resulting weights into ``target.temp['weights']``.
+    Behavior
+    --------
+    - Reads ``target.temp['selected']``.
+    - Writes computed weights to ``target.temp['weights']``.
+    - Records allocation history for each run.
     """
 
     def __init__(self) -> None:
-        """Initialize assigner and underlying optimizer."""
+        """Initialize assigner and backing analytical optimizer."""
         super().__init__()
         self.optimizer = EqualWeightOptimizer()
 
     def __call__(self, target) -> bool:
-        """Compute and store equal weights into ``target.temp['weights']``."""
+        """Run equal-weight assignment for the current strategy state.
+
+        Returns
+        -------
+        bool
+            ``True`` when assignment was processed, ``False`` for invalid
+            context (for example missing/invalid ``temp`` or ``selected``).
+        """
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -65,8 +84,6 @@ class WeightEqually(WeightAlgo):
         self.optimizer.set_problem(selected_raw)
         result = self.optimizer.solve_problem()
         allocations = result["weights"]
-        self._write_weights(temp, allocations)
-
         now = self._resolve_now(target)
-        self._record_allocation_history(now, allocations)
+        self._write_weights(temp, allocations, now=now, record_history=True)
         return True

@@ -11,10 +11,13 @@ from bt.algos.weighting.optimizers.validators import validate_series
 
 
 class MarketWeightOptimizer(BaseOptimizer):
-    """Optimizer for market-cap proportional allocations."""
+    """Analytical market-cap weighting optimizer.
+
+    This optimizer normalizes positive market caps over the selected universe.
+    """
 
     def set_problem(self, market_caps: Any, selected: list[str]) -> None:
-        """Set market-cap problem data for selected names."""
+        """Validate/store market-cap input for selected names."""
         self.reset()
         validate_series(market_caps, "MarketWeightOptimizer", "market_caps")
 
@@ -22,7 +25,7 @@ class MarketWeightOptimizer(BaseOptimizer):
         self.set_problem_data(selected=selected, market_caps=aligned_caps)
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve market-cap weighted allocation."""
+        """Compute market-cap-proportional weights."""
         selected = self.problem_data.get("selected", [])
         market_caps = self.problem_data.get("market_caps")
 
@@ -47,10 +50,14 @@ class MarketWeightOptimizer(BaseOptimizer):
 
 
 class WeightMarket(WeightAlgo):
-    """Assign market-cap proportional weights for selected names."""
+    """Assign market-cap-proportional weights for ``temp['selected']``.
+
+    This assigner reads wide market-cap data from ``target.get_data`` at
+    ``target.now`` and delegates normalization to ``MarketWeightOptimizer``.
+    """
 
     def __init__(self, market_caps_key: str = "marketcap_wide") -> None:
-        """Initialize market-weight assigner.
+        """Initialize market-cap weighting assigner.
 
         Parameters
         ----------
@@ -62,7 +69,7 @@ class WeightMarket(WeightAlgo):
         self.optimizer = MarketWeightOptimizer()
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store market-cap weights in ``temp['weights']``."""
+        """Compute and store market-cap weights for current evaluation date."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -72,8 +79,7 @@ class WeightMarket(WeightAlgo):
         if not isinstance(selected_raw, list):
             return False
         if not selected_raw:
-            self._write_weights(temp, {})
-            self._record_allocation_history(now, {})
+            self._write_weights(temp, {}, now=now, record_history=True)
             return True
 
         market_caps_data = target.get_data(self.market_caps_key)
@@ -87,6 +93,5 @@ class WeightMarket(WeightAlgo):
         self.optimizer.set_problem(market_caps, selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]
-        self._write_weights(temp, weights)
-        self._record_allocation_history(now, weights)
+        self._write_weights(temp, weights, now=now, record_history=True)
         return True

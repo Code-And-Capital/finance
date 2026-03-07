@@ -5,21 +5,11 @@ class ScaleWeights(WeightAlgo):
     """
     Algo that scales existing portfolio weights by a constant factor.
 
-    This is useful for:
-    - Scaling exposures up or down (e.g., 0.5x leverage, 2x leverage)
-    - Creating fully short allocations by using a negative scale factor
-    - Adjusting weights when working with fixed-income or leverage-aware strategies
+    Reads ``target.temp['weights']``, multiplies each value by ``scale``, and
+    writes back to ``target.temp['weights']``.
 
-    Requires:
-        * weights (dict): Must already exist in target.temp["weights"]
-
-    Sets:
-        * weights (dict): Updated with scaled values
-
-    Attributes
-    ----------
-    scale : float
-        The factor by which all weights will be multiplied.
+    When weights are missing/empty, this class writes an empty mapping and
+    returns ``True``.
     """
 
     def __init__(self, scale: float):
@@ -49,7 +39,7 @@ class ScaleWeights(WeightAlgo):
         Returns
         -------
         bool
-            True if the operation succeeds.
+            ``True`` after applying scaling logic.
         """
         weights = target.temp.get("weights")
 

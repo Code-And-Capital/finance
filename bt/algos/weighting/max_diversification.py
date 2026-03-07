@@ -21,7 +21,13 @@ from bt.algos.weighting.optimizers.variables import (
 
 
 class MaxDiversificationOptimizer(ConvexOptimizer):
-    """Convex maximum-diversification optimizer using the standard proxy form."""
+    """Convex maximum-diversification optimizer (proxy formulation).
+
+    Uses the standard two-step equivalent problem:
+    - minimize ``w^T Sigma w``
+    - subject to ``w >= 0`` and ``w^T sigma = 1``
+    Final weights are normalized to sum to 1 after solve.
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -32,7 +38,7 @@ class MaxDiversificationOptimizer(ConvexOptimizer):
         selected: list[str],
         **kwargs: Any,
     ) -> None:
-        """Set covariance inputs and assemble objective/constraints."""
+        """Build max-diversification proxy problem for selected assets."""
         self.reset()
         validate_square_covariance_matrix(cov, "MaxDiversificationOptimizer")
         cov = resolve_selected_covariance(cov, selected)
@@ -64,7 +70,7 @@ class MaxDiversificationOptimizer(ConvexOptimizer):
         )
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve max-diversification problem and return normalized weights."""
+        """Solve proxy problem and return sum-to-one normalized weights."""
         asset_count = int(self.problem_data.get("asset_count", 0))
         universe = self.problem_data.get("universe", [])
         weights_var = self.problem_data.get("weights_var")
@@ -97,14 +103,19 @@ class MaxDiversificationOptimizer(ConvexOptimizer):
 
 
 class WeightMaxDiversification(WeightAlgo):
-    """Assign portfolio weights using convex maximum-diversification optimization."""
+    """Assign weights via convex maximum-diversification optimization.
+
+    Inputs expected in ``target.temp``:
+    - ``selected``: names to allocate
+    - ``covariance``: covariance matrix
+    """
 
     def __init__(self) -> None:
         super().__init__()
         self.optimizer = MaxDiversificationOptimizer()
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store max-diversification weights in ``temp['weights']``."""
+        """Compute and store max-diversification weights."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -114,19 +125,16 @@ class WeightMaxDiversification(WeightAlgo):
         if not isinstance(selected_raw, list):
             return False
         if not selected_raw:
-            self._write_weights(temp, {})
-            self._record_allocation_history(now, {})
+            self._write_weights(temp, {}, now=now, record_history=True)
             return True
         if len(selected_raw) == 1:
             weights = {selected_raw[0]: 1.0}
-            self._write_weights(temp, weights)
-            self._record_allocation_history(now, weights)
+            self._write_weights(temp, weights, now=now, record_history=True)
             return True
 
         cov = temp.get("covariance")
         self.optimizer.set_problem(cov, selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]
-        self._write_weights(temp, weights)
-        self._record_allocation_history(now, weights)
+        self._write_weights(temp, weights, now=now, record_history=True)
         return True

@@ -9,10 +9,10 @@ from bt.algos.weighting.core import WeightAlgo
 from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 from bt.algos.weighting import (
     WeightEqually,
-    WeighSpecified,
+    WeightFixed,
     ScaleWeights,
     WeightRiskParity,
-    WeighTarget,
+    WeightFixedSchedule,
     WeightInvVol,
     WeightMarket,
     WeightMeanVar,
@@ -20,7 +20,6 @@ from bt.algos.weighting import (
     WeightMaxDiversification,
     WeightRandomly,
     LimitWeights,
-    TargetVol,
 )
 
 
@@ -149,7 +148,7 @@ def test_weight_equally_records_allocation_history_with_loc():
 
 
 def test_weight_specified():
-    algo = WeighSpecified(c1=0.6, c2=0.4)
+    algo = WeightFixed(c1=0.6, c2=0.4)
     s = Strategy("s")
 
     dts = pd.date_range("2010-01-01", periods=3)
@@ -162,6 +161,55 @@ def test_weight_specified():
     weights = s.temp["weights"]
     assert weights["c1"] == 0.6
     assert weights["c2"] == 0.4
+
+
+def test_weight_specified_intersects_with_selected():
+    algo = WeightFixed(c1=0.6, c2=0.4, c3=0.0)
+    s = Strategy("s")
+    s.temp["selected"] = ["c2"]
+
+    assert algo(s)
+    assert s.temp["weights"] == {"c2": 1.0}
+
+
+def test_weight_specified_records_allocation_history():
+    algo = WeightFixed(c1=0.6, c2=0.4)
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+
+    assert algo(s)
+    assert dts[0] in algo.allocation_history.index
+    assert algo.allocation_history.loc[dts[0], "c1"] == pytest.approx(0.6)
+    assert algo.allocation_history.loc[dts[0], "c2"] == pytest.approx(0.4)
+
+
+def test_weight_specified_returns_false_for_non_list_selected():
+    algo = WeightFixed(c1=0.6, c2=0.4)
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = "c1"
+
+    assert not algo(s)
+
+
+def test_weight_specified_empty_overlap_writes_empty_weights_and_history_row():
+    algo = WeightFixed(c1=0.6, c2=0.4)
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = ["c3"]
+
+    assert algo(s)
+    assert s.temp["weights"] == {}
+    assert dts[0] in algo.allocation_history.index
 
 
 def test_scale_weights():
@@ -196,7 +244,7 @@ def test_weigh_erc():
 
 
 def test_weigh_target():
-    algo = WeighTarget("target")
+    algo = WeightFixedSchedule("target")
     s = Strategy("s")
 
     dts = pd.date_range("2010-01-01", periods=3)
@@ -217,6 +265,89 @@ def test_weigh_target():
 
     s.update(dts[2])
     assert not algo(s)
+
+
+def test_weigh_target_intersects_with_selected():
+    algo = WeightFixedSchedule("target")
+    s = Strategy("s")
+
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    target = pd.DataFrame(index=dts, columns=["c1", "c2"], data=[[0.6, 0.4]])
+
+    s.setup(data, target=target)
+    s.update(dts[0])
+    s.temp["selected"] = ["c1"]
+
+    assert algo(s)
+    assert s.temp["weights"] == {"c1": 1.0}
+
+
+def test_weigh_target_records_allocation_history_when_date_present():
+    algo = WeightFixedSchedule("target")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=2)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    target = pd.DataFrame(index=dts[:1], columns=["c1", "c2"], data=0.5)
+    s.setup(data, target=target)
+
+    s.update(dts[0])
+    assert algo(s)
+    assert dts[0] in algo.allocation_history.index
+    assert algo.allocation_history.loc[dts[0], "c1"] == pytest.approx(0.5)
+    assert algo.allocation_history.loc[dts[0], "c2"] == pytest.approx(0.5)
+
+
+def test_weight_target_accepts_dataframe_source():
+    dts = pd.date_range("2010-01-01", periods=1)
+    weights_df = pd.DataFrame([[0.2, 0.8]], index=dts, columns=["c1", "c2"])
+    algo = WeightFixedSchedule(weights_df)
+    s = Strategy("s")
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+
+    assert algo(s)
+    assert s.temp["weights"] == {"c1": pytest.approx(0.2), "c2": pytest.approx(0.8)}
+
+
+def test_weight_target_returns_false_for_non_list_selected():
+    dts = pd.date_range("2010-01-01", periods=1)
+    weights_df = pd.DataFrame([[0.5, 0.5]], index=dts, columns=["c1", "c2"])
+    algo = WeightFixedSchedule(weights_df)
+    s = Strategy("s")
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = "c1"
+
+    assert not algo(s)
+
+
+def test_weight_target_returns_false_when_source_key_missing():
+    algo = WeightFixedSchedule("missing_weights")
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+
+    assert not algo(s)
+
+
+def test_weight_target_empty_overlap_writes_empty_weights_and_history_row():
+    dts = pd.date_range("2010-01-01", periods=1)
+    weights_df = pd.DataFrame([[0.6, 0.4]], index=dts, columns=["c1", "c2"])
+    algo = WeightFixedSchedule(weights_df)
+    s = Strategy("s")
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["selected"] = ["c3"]
+
+    assert algo(s)
+    assert s.temp["weights"] == {}
+    assert dts[0] in algo.allocation_history.index
 
 
 def test_weight_min_var():
@@ -519,61 +650,3 @@ def test_limit_weights():
     algo = LimitWeights(0.5)
     assert algo(s)
     assert s.temp["weights"] == {"c1": 0.4, "c2": 0.3, "c3": 0.3}
-
-
-def test_target_vol():
-    s = Strategy("s")
-
-    dts = pd.date_range("2010-01-01", periods=7)
-    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
-
-    data.loc[dts[0], "c1"] = 95
-    data.loc[dts[1], "c1"] = 105
-    data.loc[dts[2], "c1"] = 95
-    data.loc[dts[3], "c1"] = 105
-    data.loc[dts[4], "c1"] = 95
-    data.loc[dts[5], "c1"] = 105
-    data.loc[dts[6], "c1"] = 95
-
-    data.loc[dts[0], "c2"] = 99
-    data.loc[dts[1], "c2"] = 101
-    data.loc[dts[2], "c2"] = 99
-    data.loc[dts[3], "c2"] = 101
-    data.loc[dts[4], "c2"] = 99
-    data.loc[dts[5], "c2"] = 101
-    data.loc[dts[6], "c2"] = 99
-
-    target_vol_algo = TargetVol(
-        0.1,
-        lookback=pd.DateOffset(days=5),
-        lag=pd.DateOffset(days=1),
-        covar_method="standard",
-        annualization_factor=1,
-    )
-
-    s.setup(data)
-    s.update(dts[6])
-    s.temp["weights"] = {"c1": 0.5, "c2": 0.5}
-
-    assert target_vol_algo(s)
-    weights = s.temp["weights"]
-    assert np.isclose(weights["c2"], weights["c1"])
-
-    unannualized_c2_weight = weights["c1"]
-
-    target_vol_algo = TargetVol(
-        0.1 * np.sqrt(252),
-        lookback=pd.DateOffset(days=5),
-        lag=pd.DateOffset(days=1),
-        covar_method="standard",
-        annualization_factor=252,
-    )
-
-    s.setup(data)
-    s.update(dts[6])
-    s.temp["weights"] = {"c1": 0.5, "c2": 0.5}
-
-    assert target_vol_algo(s)
-    weights = s.temp["weights"]
-    assert np.isclose(weights["c2"], weights["c1"])
-    assert np.isclose(unannualized_c2_weight, weights["c2"])

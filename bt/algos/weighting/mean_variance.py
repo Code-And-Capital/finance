@@ -27,7 +27,12 @@ from bt.algos.weighting.optimizers.variables import (
 
 
 class MeanVarianceOptimizer(ConvexOptimizer):
-    """Convex mean-variance optimizer with optional turnover and group constraints."""
+    """Convex mean-variance optimizer.
+
+    Solves the utility objective:
+    ``max_w (mu^T w - lambda * w^T Sigma w)``
+    subject to box bounds and ``sum(w)=1``.
+    """
 
     def __init__(
         self,
@@ -45,7 +50,17 @@ class MeanVarianceOptimizer(ConvexOptimizer):
         selected: list[str],
         **kwargs: Any,
     ) -> None:
-        """Set expected returns/covariance and assemble CVX objective+constraints."""
+        """Build the CVXPY mean-variance problem for selected assets.
+
+        Parameters
+        ----------
+        rets
+            Expected returns series.
+        cov
+            Covariance matrix.
+        selected
+            Ordered selected universe to optimize.
+        """
         self.reset()
         validate_series(rets, "MeanVarianceOptimizer", "rets")
         validate_square_covariance_matrix(cov, "MeanVarianceOptimizer")
@@ -94,7 +109,7 @@ class MeanVarianceOptimizer(ConvexOptimizer):
         )
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve convex problem and map solution vector to asset dictionary."""
+        """Solve the convex problem and map solution to ``dict[str, float]``."""
         asset_count = int(self.problem_data.get("asset_count", 0))
         universe = self.problem_data.get("universe", [])
         weights_var = self.problem_data.get("weights_var")
@@ -122,7 +137,13 @@ class MeanVarianceOptimizer(ConvexOptimizer):
 
 
 class WeightMeanVar(WeightAlgo):
-    """Assign portfolio weights using convex mean-variance optimization."""
+    """Assign portfolio weights via convex mean-variance optimization.
+
+    Inputs expected in ``target.temp``:
+    - ``selected``: list of names to allocate.
+    - ``expected_returns``: expected return series.
+    - ``covariance``: covariance matrix.
+    """
 
     def __init__(
         self,
@@ -138,7 +159,7 @@ class WeightMeanVar(WeightAlgo):
         )
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store mean-variance weights in ``temp['weights']``."""
+        """Run mean-variance allocation and write ``temp['weights']``."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -148,13 +169,11 @@ class WeightMeanVar(WeightAlgo):
         if not isinstance(selected_raw, list):
             return False
         if not selected_raw:
-            self._write_weights(temp, {})
-            self._record_allocation_history(now, {})
+            self._write_weights(temp, {}, now=now, record_history=True)
             return True
         if len(selected_raw) == 1:
             weights = {selected_raw[0]: 1.0}
-            self._write_weights(temp, weights)
-            self._record_allocation_history(now, weights)
+            self._write_weights(temp, weights, now=now, record_history=True)
             return True
 
         rets = temp.get("expected_returns")
@@ -166,6 +185,5 @@ class WeightMeanVar(WeightAlgo):
         )
         result = self.optimizer.solve_problem()
         weights = result["weights"]
-        self._write_weights(temp, weights)
-        self._record_allocation_history(now, weights)
+        self._write_weights(temp, weights, now=now, record_history=True)
         return True

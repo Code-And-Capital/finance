@@ -6,9 +6,9 @@ for a strategy. Each Algo modifies `temp['weights']` in the target strategy.
 
 Available Algos:
 - WeightEqually
-- WeighSpecified
+- WeightFixed
 - ScaleWeights
-- WeighTarget
+- WeightFixedSchedule
 - WeightInvVol
 - WeightMarket
 - WeightRandomly
@@ -16,16 +16,14 @@ Available Algos:
 - WeightMeanVar
 - WeightMinVar
 - WeightMaxDiversification
-- TargetVol
 - LimitDeltas
 - LimitWeights
 """
 
 from .equal import WeightEqually
 from .core import WeightAlgo
-from .specified import WeighSpecified
-from .scale import ScaleWeights
-from .specified import WeighTarget
+from .fixed import WeightFixed
+from .fixed import WeightFixedSchedule
 from .inv_vol import WeightInvVol
 from .market import WeightMarket
 from .random import WeightRandomly
@@ -33,16 +31,16 @@ from .risk_parity import WeightRiskParity
 from .mean_variance import WeightMeanVar
 from .min_variance import WeightMinVar
 from .max_diversification import WeightMaxDiversification
-from .target_vol import TargetVol
-from .limits import LimitDeltas
-from .limits import LimitWeights
+from .modifiers import ScaleWeights
+from .modifiers import LimitDeltas
+from .modifiers import LimitWeights
 
 __all__ = [
     "WeightEqually",
     "WeightAlgo",
-    "WeighSpecified",
+    "WeightFixed",
     "ScaleWeights",
-    "WeighTarget",
+    "WeightFixedSchedule",
     "WeightInvVol",
     "WeightMarket",
     "WeightRandomly",
@@ -50,7 +48,6 @@ __all__ = [
     "WeightMeanVar",
     "WeightMinVar",
     "WeightMaxDiversification",
-    "TargetVol",
     "LimitDeltas",
     "LimitWeights",
 ]

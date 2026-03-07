@@ -25,7 +25,10 @@ from bt.algos.weighting.optimizers.variables import (
 
 
 class MinVarianceOptimizer(ConvexOptimizer):
-    """Convex minimum-variance optimizer with simple box bounds."""
+    """Convex minimum-variance optimizer with box bounds.
+
+    Solves ``min_w w^T Sigma w`` subject to bounds and ``sum(w)=1``.
+    """
 
     def __init__(self, bounds: tuple[float, float] = (0.0, 1.0)) -> None:
         super().__init__()
@@ -37,7 +40,7 @@ class MinVarianceOptimizer(ConvexOptimizer):
         selected: list[str],
         **kwargs: Any,
     ) -> None:
-        """Set covariance inputs and assemble objective/constraints."""
+        """Build minimum-variance CVXPY problem for selected assets."""
         self.reset()
         validate_square_covariance_matrix(cov, "MinVarianceOptimizer")
         cov = resolve_selected_covariance(cov, selected)
@@ -69,7 +72,7 @@ class MinVarianceOptimizer(ConvexOptimizer):
         )
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve minimum-variance problem and return weights payload."""
+        """Solve minimum-variance problem and return optimizer payload."""
         asset_count = int(self.problem_data.get("asset_count", 0))
         universe = self.problem_data.get("universe", [])
         weights_var = self.problem_data.get("weights_var")
@@ -97,7 +100,12 @@ class MinVarianceOptimizer(ConvexOptimizer):
 
 
 class WeightMinVar(WeightAlgo):
-    """Assign portfolio weights using convex minimum-variance optimization."""
+    """Assign weights via convex minimum-variance optimization.
+
+    Inputs expected in ``target.temp``:
+    - ``selected``: names to allocate
+    - ``covariance``: covariance matrix
+    """
 
     def __init__(
         self,
@@ -108,7 +116,7 @@ class WeightMinVar(WeightAlgo):
         self.optimizer = MinVarianceOptimizer(bounds=self.bounds)
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store minimum-variance weights in ``temp['weights']``."""
+        """Compute and store minimum-variance weights."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -118,19 +126,16 @@ class WeightMinVar(WeightAlgo):
         if not isinstance(selected_raw, list):
             return False
         if not selected_raw:
-            self._write_weights(temp, {})
-            self._record_allocation_history(now, {})
+            self._write_weights(temp, {}, now=now, record_history=True)
             return True
         if len(selected_raw) == 1:
             weights = {selected_raw[0]: 1.0}
-            self._write_weights(temp, weights)
-            self._record_allocation_history(now, weights)
+            self._write_weights(temp, weights, now=now, record_history=True)
             return True
 
         cov = temp.get("covariance")
         self.optimizer.set_problem(cov, selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]
-        self._write_weights(temp, weights)
-        self._record_allocation_history(now, weights)
+        self._write_weights(temp, weights, now=now, record_history=True)
         return True

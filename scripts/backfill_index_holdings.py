@@ -18,7 +18,7 @@ import bt
 from bt.algos.flow import RunOnce
 from bt.algos.portfolio_ops import Rebalance
 from bt.algos.selection import SelectAll, SelectWhere, SelectActive
-from bt.algos.weighting import WeighTarget
+from bt.algos.weighting import WeightFixedSchedule
 from bt.core import Strategy
 from bt.engine import Backtest
 from sqlalchemy import types as satypes
@@ -144,7 +144,7 @@ def build_index_holdings_backfill(
             SelectWhere(in_index),
             SelectAll(),
             SelectActive(),
-            WeighTarget(weights=weight_schedule),
+            WeightFixedSchedule(weights=weight_schedule),
             Rebalance(),
         ],
     )
