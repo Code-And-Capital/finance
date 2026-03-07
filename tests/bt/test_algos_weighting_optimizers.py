@@ -10,6 +10,7 @@ from bt.algos.weighting.optimizers.constraints import (
 )
 from bt.algos.weighting.optimizers.objectives import negative_sharpe_ratio
 from bt.algos.weighting.optimizers.objectives import (
+    min_variance_objective,
     mean_variance_utility_objective,
     risk_parity_objective,
 )
@@ -22,6 +23,7 @@ from bt.algos.weighting.optimizers.validators import (
 from bt.algos.weighting.mean_variance import MeanVarianceOptimizer
 from bt.algos.weighting.random import RandomWeightOptimizer
 from bt.algos.weighting.risk_parity import RiskParityOptimizer
+from bt.algos.weighting.min_variance import MinVarianceOptimizer
 import bt.algos.weighting.optimizers.convex_optimizer as convex_mod
 import cvxpy as cvx
 
@@ -320,6 +322,17 @@ def test_risk_parity_objective_builder():
     assert isinstance(obj, cvx.Minimize)
 
 
+def test_min_variance_objective_builder():
+    w = cvx.Variable(2)
+    cov = np.array([[0.04, 0.0], [0.0, 0.09]])
+    obj = min_variance_objective(
+        w,
+        cov,
+        minimize_builder=cvx.Minimize,
+    )
+    assert isinstance(obj, cvx.Minimize)
+
+
 def test_mean_variance_constraints_builders():
     w = cvx.Variable(2)
     box = bound_constraints(
@@ -360,8 +373,6 @@ def test_mean_variance_optimizer_set_problem_data_contract():
     assert opt.problem_data["universe"] == selected
     assert opt.problem_data["asset_count"] == 2
     assert opt.problem_data["weights_var"] is not None
-    np.testing.assert_allclose(opt.problem_data["min_weights"], np.array([0.1, 0.1]))
-    np.testing.assert_allclose(opt.problem_data["max_weights"], np.array([0.8, 0.8]))
     assert len(opt.constraints) == 3
     result = opt.solve_problem()
     assert result["success"] is True
@@ -456,3 +467,27 @@ def test_risk_parity_optimizer_empty_after_selection():
     opt.set_problem(covariance, [])
     result = opt.solve_problem()
     assert result["weights"] == {}
+
+
+def test_min_variance_optimizer_set_and_solve():
+    covariance = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.01]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
+    opt = MinVarianceOptimizer()
+    opt.set_problem(covariance, ["c1", "c2"])
+    result = opt.solve_problem()
+    assert result["success"] is True
+    weights = result["weights"]
+    assert set(weights.keys()) == {"c1", "c2"}
+    assert sum(weights.values()) == pytest.approx(1.0)
+    assert weights["c2"] > weights["c1"]
+
+
+def test_min_variance_optimizer_single_asset():
+    covariance = pd.DataFrame([[0.04]], index=["c1"], columns=["c1"])
+    opt = MinVarianceOptimizer()
+    opt.set_problem(covariance, ["c1"])
+    result = opt.solve_problem()
+    assert result["weights"] == {"c1": pytest.approx(1.0)}

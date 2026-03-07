@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import cvxpy as cvx
 import numpy as np
 import pandas as pd
-import cvxpy as cvx
 
 from bt.algos.weighting.core import WeightAlgo
 from bt.algos.weighting.optimizers.constraints import (
@@ -12,45 +12,35 @@ from bt.algos.weighting.optimizers.constraints import (
     sum_to_one_constraint,
 )
 from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
-from bt.algos.weighting.optimizers.objectives import mean_variance_utility_objective
+from bt.algos.weighting.optimizers.objectives import min_variance_objective
 from bt.algos.weighting.optimizers.validators import (
     resolve_selected_covariance,
     validate_bounds,
-    validate_series,
     validate_square_covariance_matrix,
 )
 from bt.algos.weighting.optimizers.variables import (
     build_covariance_matrix,
-    build_expected_returns_parameter,
     build_weight_variable,
 )
 
 
-class MeanVarianceOptimizer(ConvexOptimizer):
-    """Convex mean-variance optimizer with optional turnover and group constraints."""
+class MinVarianceOptimizer(ConvexOptimizer):
+    """Convex minimum-variance optimizer with simple box bounds."""
 
-    def __init__(
-        self,
-        risk_averse_lambda: float = 1.0,
-        bounds: tuple[float, float] = (0.0, 1.0),
-    ) -> None:
+    def __init__(self, bounds: tuple[float, float] = (0.0, 1.0)) -> None:
         super().__init__()
-        self.risk_averse_lambda = float(risk_averse_lambda)
-        self.bounds = validate_bounds(bounds, "MeanVarianceOptimizer")
+        self.bounds = validate_bounds(bounds, "MinVarianceOptimizer")
 
     def set_problem(
         self,
-        rets: pd.Series,
         cov: pd.DataFrame,
         selected: list[str],
         **kwargs: Any,
     ) -> None:
-        """Set expected returns/covariance and assemble CVX objective+constraints."""
+        """Set covariance inputs and assemble objective/constraints."""
         self.reset()
-        validate_series(rets, "MeanVarianceOptimizer", "rets")
-        validate_square_covariance_matrix(cov, "MeanVarianceOptimizer")
+        validate_square_covariance_matrix(cov, "MinVarianceOptimizer")
         cov = resolve_selected_covariance(cov, selected)
-        rets = rets.reindex(selected)
 
         asset_count = len(selected)
         if asset_count == 0:
@@ -60,32 +50,17 @@ class MeanVarianceOptimizer(ConvexOptimizer):
             return
 
         cov_matrix = build_covariance_matrix(cov)
-        exp_returns = build_expected_returns_parameter(
-            rets,
-            self.parameter,
-        )
-        weights = build_weight_variable(
-            asset_count,
-            self.variable,
-        )
+        weights = build_weight_variable(asset_count, self.variable)
         min_weights, max_weights = self.compute_weight_bounds(selected, self.bounds)
 
         self.add_objective(
-            lambda: mean_variance_utility_objective(
+            lambda: min_variance_objective(
                 weights,
-                exp_returns,
                 cov_matrix,
-                self.risk_averse_lambda,
-                self.maximize,
+                self.minimize,
             )
         )
-        self.bulk_add_constraints(
-            bound_constraints(
-                weights,
-                min_weights,
-                max_weights,
-            )
-        )
+        self.bulk_add_constraints(bound_constraints(weights, min_weights, max_weights))
         self.add_constraint(sum_to_one_constraint(weights))
         self.set_problem_data(
             universe=selected,
@@ -94,7 +69,7 @@ class MeanVarianceOptimizer(ConvexOptimizer):
         )
 
     def solve_problem(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Solve convex problem and map solution vector to asset dictionary."""
+        """Solve minimum-variance problem and return weights payload."""
         asset_count = int(self.problem_data.get("asset_count", 0))
         universe = self.problem_data.get("universe", [])
         weights_var = self.problem_data.get("weights_var")
@@ -113,7 +88,7 @@ class MeanVarianceOptimizer(ConvexOptimizer):
 
         super().solve_problem(*args, **kwargs)
         if weights_var is None or weights_var.value is None:
-            raise RuntimeError("MeanVarianceOptimizer solved without weights.")
+            raise RuntimeError("MinVarianceOptimizer solved without weights.")
         solved = np.asarray(weights_var.value, dtype=float).reshape(-1)
         self.weights_ = {
             asset: float(weight) for asset, weight in zip(universe, solved)
@@ -121,24 +96,19 @@ class MeanVarianceOptimizer(ConvexOptimizer):
         return self.get_result()
 
 
-class WeightMeanVar(WeightAlgo):
-    """Assign portfolio weights using convex mean-variance optimization."""
+class WeightMinVar(WeightAlgo):
+    """Assign portfolio weights using convex minimum-variance optimization."""
 
     def __init__(
         self,
-        risk_averse_lambda: float = 1.0,
         bounds: tuple[float, float] = (0.0, 1.0),
     ) -> None:
         super().__init__()
-        self.risk_averse_lambda = float(risk_averse_lambda)
         self.bounds = bounds
-        self.optimizer = MeanVarianceOptimizer(
-            risk_averse_lambda=self.risk_averse_lambda,
-            bounds=self.bounds,
-        )
+        self.optimizer = MinVarianceOptimizer(bounds=self.bounds)
 
     def __call__(self, target: Any) -> bool:
-        """Compute and store mean-variance weights in ``temp['weights']``."""
+        """Compute and store minimum-variance weights in ``temp['weights']``."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
@@ -157,13 +127,8 @@ class WeightMeanVar(WeightAlgo):
             self._record_allocation_history(now, weights)
             return True
 
-        rets = temp.get("expected_returns")
         cov = temp.get("covariance")
-        self.optimizer.set_problem(
-            rets,
-            cov,
-            selected=selected_raw,
-        )
+        self.optimizer.set_problem(cov, selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]
         self._write_weights(temp, weights)

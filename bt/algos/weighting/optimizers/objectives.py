@@ -43,3 +43,12 @@ def risk_parity_objective(
     return minimize_builder(
         0.5 * cvx.quad_form(weights, covariance) - risk_budgets @ cvx.log(weights)
     )
+
+
+def min_variance_objective(
+    weights: cvx.Variable,
+    covariance,
+    minimize_builder,
+):
+    """Build CVXPY minimize objective for minimum-variance optimization."""
+    return minimize_builder(0.5 * cvx.quad_form(weights, covariance))
