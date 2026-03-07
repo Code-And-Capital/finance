@@ -2,7 +2,7 @@
 
 from .base_optimizer import BaseOptimizer
 from .convex_optimizer import ConvexOptimizer
-from . import assemblers, constraints, objectives, validators, variables
+from . import constraints, objectives, validators, variables
 
 __all__ = [
     "BaseOptimizer",
@@ -11,5 +11,4 @@ __all__ = [
     "constraints",
     "objectives",
     "validators",
-    "assemblers",
 ]

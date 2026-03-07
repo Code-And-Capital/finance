@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+import numpy as np
 import cvxpy as cvx
 
 from .base_optimizer import BaseOptimizer
@@ -57,6 +58,17 @@ class ConvexOptimizer(BaseOptimizer):
     def maximize(expr: Any) -> Any:
         """Build a CVXPY maximize objective."""
         return cvx.Maximize(expr)
+
+    @staticmethod
+    def compute_weight_bounds(
+        assets: list[str],
+        bounds: tuple[float, float],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build per-asset min/max bound arrays from one ``bounds`` tuple."""
+        default_min, default_max = bounds
+        min_weights = np.full(len(assets), float(default_min), dtype=float)
+        max_weights = np.full(len(assets), float(default_max), dtype=float)
+        return min_weights, max_weights
 
     def check_inputs(self) -> None:
         """Validate convex optimizer setup before solving."""

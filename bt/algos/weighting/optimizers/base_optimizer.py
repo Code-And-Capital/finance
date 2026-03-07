@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 
 class BaseOptimizer(ABC):
@@ -59,6 +59,10 @@ class BaseOptimizer(ABC):
     def add_constraint(self, new_constraint: Any) -> None:
         """Append one constraint to the optimizer state."""
         self._constraints.append(new_constraint)
+
+    def bulk_add_constraints(self, new_constraints: Iterable[Any]) -> None:
+        """Append multiple constraints to the optimizer state."""
+        self._constraints.extend(new_constraints)
 
     def set_problem_data(self, **problem_data: Any) -> None:
         """Set optimization input data used by concrete solvers.

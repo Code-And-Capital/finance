@@ -24,6 +24,7 @@ class InvVolOptimizer(BaseOptimizer):
 
         When ``selected`` is provided, covariance is subsetted to that universe.
         """
+        self.reset()
         validate_square_covariance_matrix(covariance, "InvVolOptimizer")
         if selected is not None:
             covariance = resolve_selected_covariance(covariance, selected)

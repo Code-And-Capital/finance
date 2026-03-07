@@ -15,6 +15,7 @@ class MarketWeightOptimizer(BaseOptimizer):
 
     def set_problem(self, market_caps: Any, selected: list[str]) -> None:
         """Set market-cap problem data for selected names."""
+        self.reset()
         validate_series(market_caps, "MarketWeightOptimizer", "market_caps")
 
         aligned_caps = market_caps.reindex(selected)

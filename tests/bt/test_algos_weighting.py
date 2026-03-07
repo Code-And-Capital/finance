@@ -15,7 +15,7 @@ from bt.algos.weighting import (
     WeighTarget,
     WeightInvVol,
     WeightMarket,
-    WeighMeanVar,
+    WeightMeanVar,
     WeighRandomly,
     LimitWeights,
     TargetVol,
@@ -397,10 +397,15 @@ def test_market_weight_optimizer_drops_nonpositive_and_nan_caps():
     assert result["weights"] == {"c1": pytest.approx(1.0)}
 
 
-@mock.patch.object(WeighMeanVar, "calc_mean_var_weights")
-def test_weigh_mean_var(mock_mv):
-    algo = WeighMeanVar(lookback=pd.DateOffset(days=5))
-    mock_mv.return_value = pd.Series({"c1": 0.3, "c2": 0.7})
+@mock.patch("bt.algos.weighting.mean_variance.MeanVarianceOptimizer.solve_problem")
+def test_weigh_mean_var(mock_solve):
+    algo = WeightMeanVar()
+    mock_solve.return_value = {
+        "weights": {"c1": 0.3, "c2": 0.7},
+        "success": True,
+        "status": "optimal",
+        "message": "ok",
+    }
 
     s = Strategy("s")
     dts = pd.date_range("2010-01-01", periods=5)
@@ -409,10 +414,16 @@ def test_weigh_mean_var(mock_mv):
     s.setup(data)
     s.update(dts[4])
     s.temp["selected"] = ["c1", "c2"]
+    s.temp["expected_returns"] = pd.Series({"c1": 0.01, "c2": 0.02})
+    s.temp["covariance"] = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.01]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
 
     assert algo(s)
-    rets = mock_mv.call_args[0][0]
-    assert len(rets) == 4
+    assert algo.optimizer.problem_data["universe"] == ["c1", "c2"]
+    assert algo.optimizer.problem_data["asset_count"] == 2
     assert s.temp["weights"] == {"c1": 0.3, "c2": 0.7}
 
 

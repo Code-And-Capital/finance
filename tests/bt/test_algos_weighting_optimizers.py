@@ -1,14 +1,23 @@
 import pytest
 import pandas as pd
+import numpy as np
 
 from bt.algos.weighting.optimizers.base_optimizer import BaseOptimizer
 from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
+from bt.algos.weighting.optimizers.constraints import (
+    bound_constraints,
+    sum_to_one_constraint,
+)
+from bt.algos.weighting.optimizers.objectives import negative_sharpe_ratio
+from bt.algos.weighting.optimizers.objectives import mean_variance_utility_objective
 from bt.algos.weighting.optimizers.validators import (
     resolve_selected_covariance,
     validate_series,
     validate_square_covariance_matrix,
 )
+from bt.algos.weighting.mean_variance import MeanVarianceOptimizer
 import bt.algos.weighting.optimizers.convex_optimizer as convex_mod
+import cvxpy as cvx
 
 
 class DummyOptimizer(BaseOptimizer):
@@ -61,6 +70,14 @@ def test_add_constraint_and_constraints_property_copy():
     snapshot = opt.constraints
     snapshot.append("new")
     assert opt.constraints == [c]
+
+
+def test_bulk_add_constraints_appends_all():
+    opt = DummyOptimizer()
+    c1 = object()
+    c2 = object()
+    opt.bulk_add_constraints([c1, c2])
+    assert opt.constraints == [c1, c2]
 
 
 def test_set_problem_data_and_solver_options():
@@ -225,3 +242,129 @@ def test_resolve_selected_covariance_success():
     subset = resolve_selected_covariance(cov, ["b", "a"])
     assert list(subset.index) == ["b", "a"]
     assert list(subset.columns) == ["b", "a"]
+
+
+def test_sum_to_one_constraint():
+    w = cvx.Variable(2)
+    constraint = sum_to_one_constraint(w)
+    problem = cvx.Problem(cvx.Minimize(0), [constraint, w >= 0])
+    problem.solve()
+    assert w.value is not None
+    assert np.sum(w.value) == pytest.approx(1.0)
+
+
+def test_negative_sharpe_ratio():
+    w = np.array([0.5, 0.5])
+    mu = np.array([0.1, 0.2])
+    cov = np.array([[0.04, 0.0], [0.0, 0.09]])
+    value = negative_sharpe_ratio(w, mu, cov, rf=0.0)
+    assert np.isfinite(value)
+    assert value < 0.0
+
+
+def test_mean_variance_utility_objective_builder():
+    w = cvx.Variable(2)
+    mu = cvx.Parameter(2)
+    mu.value = np.array([0.1, 0.2])
+    cov = np.array([[0.04, 0.0], [0.0, 0.09]])
+    obj = mean_variance_utility_objective(
+        w,
+        mu,
+        cov,
+        risk_averse_lambda=1.0,
+        maximize_builder=cvx.Maximize,
+    )
+    assert isinstance(obj, cvx.Maximize)
+
+
+def test_mean_variance_constraints_builders():
+    w = cvx.Variable(2)
+    box = bound_constraints(
+        w,
+        np.array([0.0, 0.0]),
+        np.array([1.0, 1.0]),
+    )
+    assert len(box) == 2
+
+
+def test_mean_variance_optimizer_set_and_solve():
+    expected_returns = pd.Series({"c1": 0.01, "c2": 0.02})
+    covariance = pd.DataFrame(
+        [[0.04, 0.0], [0.0, 0.09]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
+    opt = MeanVarianceOptimizer()
+    opt.set_problem(expected_returns, covariance, ["c1", "c2"])
+    result = opt.solve_problem()
+    assert result["success"] is True
+    assert set(result["weights"].keys()) == {"c1", "c2"}
+    assert sum(result["weights"].values()) == pytest.approx(1.0)
+
+
+def test_mean_variance_optimizer_set_problem_data_contract():
+    expected_returns = pd.Series({"c1": 0.01, "c2": 0.02, "c3": 0.03})
+    covariance = pd.DataFrame(
+        [[0.04, 0.0, 0.0], [0.0, 0.09, 0.0], [0.0, 0.0, 0.16]],
+        index=["c1", "c2", "c3"],
+        columns=["c1", "c2", "c3"],
+    )
+    selected = ["c3", "c1"]
+
+    opt = MeanVarianceOptimizer()
+    opt.set_problem(
+        expected_returns,
+        covariance,
+        selected=selected,
+        bounds=(0.1, 0.8),
+    )
+
+    assert opt.problem_data["universe"] == selected
+    assert opt.problem_data["asset_count"] == 2
+    assert opt.problem_data["weights_var"] is not None
+    np.testing.assert_allclose(opt.problem_data["min_weights"], np.array([0.1, 0.1]))
+    np.testing.assert_allclose(opt.problem_data["max_weights"], np.array([0.8, 0.8]))
+    assert len(opt.constraints) == 3
+    result = opt.solve_problem()
+    assert result["success"] is True
+    weights = result["weights"]
+    assert set(weights.keys()) == set(selected)
+    total = sum(weights.values())
+    assert total == pytest.approx(1.0)
+    for weight in weights.values():
+        assert 0.1 <= weight <= 0.8
+
+
+def test_mean_variance_optimizer_respects_selected_order():
+    expected_returns = pd.Series({"c1": 0.01, "c2": 0.03})
+    covariance = pd.DataFrame(
+        [[0.04, 0.01], [0.01, 0.09]],
+        index=["c1", "c2"],
+        columns=["c1", "c2"],
+    )
+    selected = ["c2", "c1"]
+
+    opt = MeanVarianceOptimizer()
+    opt.set_problem(expected_returns, covariance, selected=selected)
+    result = opt.solve_problem()
+
+    assert list(result["weights"].keys()) == selected
+    assert sum(result["weights"].values()) == pytest.approx(1.0)
+
+
+def test_mean_variance_optimizer_single_asset():
+    expected_returns = pd.Series({"c1": 0.01})
+    covariance = pd.DataFrame([[0.04]], index=["c1"], columns=["c1"])
+    opt = MeanVarianceOptimizer()
+    opt.set_problem(expected_returns, covariance, ["c1"])
+    result = opt.solve_problem()
+    assert result["weights"] == {"c1": pytest.approx(1.0)}
+
+
+def test_mean_variance_optimizer_empty_returns():
+    expected_returns = pd.Series(dtype=float)
+    covariance = pd.DataFrame()
+    opt = MeanVarianceOptimizer()
+    opt.set_problem(expected_returns, covariance, [])
+    result = opt.solve_problem()
+    assert result["weights"] == {}

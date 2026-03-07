@@ -14,6 +14,7 @@ class EqualWeightOptimizer(BaseOptimizer):
 
     def set_problem(self, universe: list[Any]) -> None:
         """Set selected universe for equal-weight optimization."""
+        self.reset()
         if not isinstance(universe, list):
             raise TypeError("EqualWeightOptimizer `universe` must be a list.")
         deduped_universe = list(set(universe))
