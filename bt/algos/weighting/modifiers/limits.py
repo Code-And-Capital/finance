@@ -1,185 +1,179 @@
 import numpy as np
-import pandas as pd
-from typing import Union
+from typing import Any
 from bt.algos.weighting.core import WeightAlgo
+from utils.math_utils import validate_non_negative, validate_real
 
 
 class LimitDeltas(WeightAlgo):
-    """
-    Restrict the change in portfolio weights from one period to the next.
+    """Limit per-asset weight changes relative to current child weights.
 
-    This Algo modifies `temp['weights']` so that each asset's weight change
-    (delta) does not exceed a specified limit. Useful for controlling trading
-    aggressiveness and reducing market impact.
-
-    For example, if a security currently has weight 1.0 and the new target
-    weight is 0.0, with a global limit of 0.1, the new weight will be
-    adjusted to 0.9 instead of 0.0.
-
-    Parameters
-    ----------
-    limit : float or dict, optional
-        Maximum allowed weight change per asset. If float, applies globally.
-        If dict, specifies per-asset limits.
-
-    Side Effects
-    ------------
-    Updates ``target.temp['weights']`` in place with clipped deltas and
-    normalization.
+    This modifier clips target deltas:
+    ``new_weight - current_child_weight``
+    to either a global limit or per-asset limits, then normalizes to sum to 1
+    when total weight is positive.
     """
 
-    def __init__(self, limit: float | dict = 0.1):
-        super().__init__()
-        self.limit = limit
-        self.global_limit = not isinstance(limit, dict)
-
-    def __call__(self, target) -> bool:
-        """
-        Apply delta limits to target weights.
+    def __init__(self, limit: float = 0.1) -> None:
+        """Initialize delta limiter.
 
         Parameters
         ----------
-        target : StrategyBase
-            Strategy context. Must have `temp['weights']` and `children` attributes.
+        limit
+            Non-negative global delta limit applied to all assets.
+        """
+        super().__init__()
+        self.limit = validate_non_negative(validate_real(limit, "limit"), "limit")
+
+    def _limit_deltas(
+        self,
+        current_weights: dict[str, float],
+        target_weights: dict[str, float],
+    ) -> dict[str, float]:
+        """Recursively clip deltas until post-normalization limits hold."""
+        tolerance = 1e-12
+        all_keys = set(target_weights.keys())
+        if not all_keys:
+            return {}
+
+        n_assets = float(len(all_keys))
+        lower_sum = sum(weight - self.limit for weight in current_weights.values())
+        upper_sum = sum(weight + self.limit for weight in current_weights.values())
+        relax_from_lower = max(0.0, (lower_sum - 1.0) / n_assets)
+        relax_from_upper = max(0.0, (1.0 - upper_sum) / n_assets)
+        effective_limit = self.limit + max(relax_from_lower, relax_from_upper)
+
+        def _recurse(candidate: dict[str, float]) -> dict[str, float]:
+            clipped: dict[str, float] = {}
+            for name in all_keys:
+                current_weight = float(current_weights.get(name, 0.0))
+                target_weight = float(candidate.get(name, 0.0))
+                delta = target_weight - current_weight
+                if abs(delta) > effective_limit:
+                    clipped[name] = current_weight + float(effective_limit) * float(
+                        np.sign(delta)
+                    )
+                else:
+                    clipped[name] = target_weight
+
+            total_weight = float(sum(clipped.values()))
+            if total_weight > 0.0:
+                clipped = {k: w / total_weight for k, w in clipped.items()}
+
+            violations = [
+                abs(clipped[name] - float(current_weights.get(name, 0.0)))
+                - effective_limit
+                for name in all_keys
+            ]
+            if all(v <= tolerance for v in violations):
+                return clipped
+
+            return _recurse(clipped)
+
+        return _recurse(dict(target_weights))
+
+    def __call__(self, target: Any) -> bool:
+        """Apply delta clipping and write updated weights.
 
         Returns
         -------
         bool
-            ``True`` after applying delta limits.
+            ``True`` when processed; ``False`` for invalid context.
         """
-        tw = target.temp.get("weights", {})
-        all_keys = set(target.children.keys()).union(tw.keys())
+        temp = self._resolve_temp(target)
+        if temp is None:
+            return False
+        now = self._resolve_now(target)
+        children = getattr(target, "children", None)
+        if not isinstance(children, dict):
+            return False
 
-        for k in all_keys:
-            current_weight = target.children[k].weight if k in target.children else 0.0
-            target_weight = tw.get(k, 0.0)
-            delta = target_weight - current_weight
+        raw_weights = temp.get("weights", {})
+        target_weights = self._to_weight_dict(raw_weights)
+        if not target_weights:
+            self._write_weights(temp, {}, now=now, record_history=True)
+            return True
 
-            if self.global_limit:
-                if abs(delta) > self.limit:
-                    tw[k] = current_weight + self.limit * np.sign(delta)
-            else:
-                lmt = self.limit.get(k, None)
-                if lmt is not None and abs(delta) > lmt:
-                    tw[k] = current_weight + lmt * np.sign(delta)
-
-        # Normalize weights to sum to 1
-        total_weight = sum(tw.values())
-        if total_weight > 0:
-            tw = {k: w / total_weight for k, w in tw.items()}
-
-        target.temp["weights"].update(tw)
+        current_weights = {
+            name: float(getattr(children.get(name), "weight", 0.0))
+            for name in target_weights.keys()
+        }
+        adjusted = self._limit_deltas(current_weights, target_weights)
+        self._write_weights(temp, adjusted, now=now, record_history=True)
         return True
 
 
 class LimitWeights(WeightAlgo):
-    """
-    Restrict the maximum weight of any single asset in the portfolio.
+    """Cap per-asset weights and redistribute excess proportionally.
 
-    This Algo wraps limit_weights logic. It caps any asset weight at a
-    specified `limit` and redistributes the excess proportionally among the
-    other assets. Useful to avoid extreme allocations from upstream
-    weighting algorithms.
-
-    Example:
-        - Original weights: {'A': 0.7, 'B': 0.2, 'C': 0.1}
-        - limit = 0.5
-        - Excess 0.2 from 'A' is redistributed proportionally to 'B' and 'C'
-        - Resulting weights: {'A': 0.5, 'B': 0.33, 'C': 0.17}
-
-    Parameters
-    ----------
-    limit : float
-        Maximum weight allowed for any asset.
-
-    Side Effects
-    ------------
-    Rewrites ``target.temp['weights']`` to satisfy the configured max weight.
+    This modifier reads ``target.temp['weights']``, enforces ``weight <= limit``
+    for each asset, redistributes excess among uncapped names, and writes the
+    adjusted mapping back to ``temp['weights']``.
     """
 
-    def __init__(self, limit: float = 0.1):
+    def __init__(self, limit: float) -> None:
+        """Initialize max-weight limiter.
+
+        Parameters
+        ----------
+        limit
+            Maximum allowed weight for any single asset. Must satisfy
+            ``0 < limit <= 1``.
+        """
         super().__init__()
-        self.limit = limit
+        validated_limit = validate_real(limit, "limit")
+        if validated_limit <= 0.0 or validated_limit > 1.0:
+            raise ValueError("limit must satisfy 0 < limit <= 1.")
+        self.limit = validated_limit
 
-    def limit_weights(
-        self, weights: Union[dict, pd.Series], limit: float = 0.1
-    ) -> pd.Series:
-        """
-        Limit individual asset weights and redistribute excess proportionally.
+    def _limit_weights(self, weights: dict[str, float]) -> dict[str, float]:
+        """Iteratively cap and redistribute until all names satisfy ``self.limit``."""
+        if not weights:
+            return {}
 
-        Parameters
-        ----------
-        weights : dict or pd.Series
-            Original weights. Must sum to 1.
-        limit : float
-            Maximum allowed weight.
+        tolerance = 1e-12
+        limited = {name: float(weight) for name, weight in weights.items()}
 
-        Returns
-        -------
-        pd.Series
-            Adjusted weights with redistributed excess.
-        """
-        if 1.0 / limit > len(weights):
-            raise ValueError("Invalid limit: 1 / limit must be <= number of assets")
+        while True:
+            over = {k: v for k, v in limited.items() if v > self.limit + tolerance}
+            if not over:
+                return limited
 
-        if isinstance(weights, dict):
-            weights = pd.Series(weights)
+            excess = sum(v - self.limit for v in over.values())
+            under = {k: v for k, v in limited.items() if v < self.limit - tolerance}
+            under_sum = sum(under.values())
+            if under_sum <= 0.0:
+                return {}
 
-        if not np.isclose(weights.sum(), 1.0):
-            raise ValueError(f"Weights must sum to 1. Current sum: {weights.sum()}")
+            for name in over:
+                limited[name] = self.limit
+            for name, weight in under.items():
+                limited[name] = weight + (weight / under_sum) * excess
 
-        res = weights.copy().round(4)
-        # Amount to redistribute
-        excess = (res[res > limit] - limit).sum()
-
-        # Redistribute to those below the limit
-        ok = res[res < limit]
-        if not ok.empty:
-            ok += (ok / ok.sum()) * excess
-
-        res[res > limit] = limit
-        res[res < limit] = ok
-
-        # Recursive check to ensure no weight exceeds the limit
-        if any(res > limit):
-            return self.limit_weights(res, limit=limit)
-
-        return res
-
-    def __call__(self, target) -> bool:
-        """
-        Apply weight limits to target.temp['weights'].
-
-        Parameters
-        ----------
-        target : StrategyBase
-            Strategy context. Must have `temp['weights']`.
+    def __call__(self, target: Any) -> bool:
+        """Apply max-weight cap to ``temp['weights']`` and record history.
 
         Returns
         -------
         bool
-            ``True`` when logic was processed, ``False`` for invalid weight
-            input type.
+            ``True`` when processed, ``False`` for invalid context or payload.
         """
-        tw = target.temp.get("weights")
-        if tw is None:
-            return True
-
-        if isinstance(tw, pd.Series):
-            tw_map = tw.dropna().to_dict()
-        elif isinstance(tw, dict):
-            tw_map = tw
-        else:
+        temp = self._resolve_temp(target)
+        if temp is None:
             return False
+        now = self._resolve_now(target)
 
-        if len(tw_map) == 0:
-            target.temp["weights"] = {}
+        raw_weights = temp.get("weights", {})
+        weight_map = self._to_weight_dict(raw_weights)
+
+        if not weight_map:
+            self._write_weights(temp, {}, now=now, record_history=True)
             return True
 
-        # If limit is smaller than equal weight, zero out all weights
-        if self.limit < 1.0 / len(tw_map):
-            target.temp["weights"] = {}
-        else:
-            target.temp["weights"] = self.limit_weights(tw_map, self.limit).to_dict()
+        # Infeasible cap for this number of names: no valid solution.
+        if self.limit < 1.0 / len(weight_map):
+            self._write_weights(temp, weight_map, now=now, record_history=True)
+            return True
 
+        limited = self._limit_weights(weight_map)
+        self._write_weights(temp, limited, now=now, record_history=True)
         return True

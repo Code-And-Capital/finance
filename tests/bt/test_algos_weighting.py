@@ -20,6 +20,7 @@ from bt.algos.weighting import (
     WeightMinVar,
     WeightMaxDiversification,
     WeightRandomly,
+    LimitDeltas,
     LimitWeights,
 )
 
@@ -836,9 +837,147 @@ def test_limit_weights():
     s.temp["weights"] = {"c1": 0.6, "c2": 0.2, "c3": 0.2}
     algo = LimitWeights(0.3)
     assert algo(s)
-    assert s.temp["weights"] == {}
+    assert s.temp["weights"] == {"c1": 0.6, "c2": 0.2, "c3": 0.2}
 
     s.temp["weights"] = {"c1": 0.4, "c2": 0.3, "c3": 0.3}
     algo = LimitWeights(0.5)
     assert algo(s)
     assert s.temp["weights"] == {"c1": 0.4, "c2": 0.3, "c3": 0.3}
+
+
+def test_limit_weights_records_allocation_history():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["weights"] = {"c1": 0.6, "c2": 0.2, "c3": 0.2}
+
+    algo = LimitWeights(0.5)
+    assert algo(s)
+    assert dts[0] in algo.allocation_history.index
+    assert algo.allocation_history.loc[dts[0], "c1"] == pytest.approx(0.5)
+    assert algo.allocation_history.loc[dts[0], "c2"] == pytest.approx(0.25)
+    assert algo.allocation_history.loc[dts[0], "c3"] == pytest.approx(0.25)
+
+
+def test_limit_weights_returns_false_for_invalid_context():
+    algo = LimitWeights(0.5)
+    target = mock.MagicMock(spec=[])
+    assert not algo(target)
+
+
+def test_limit_weights_writes_empty_when_weights_missing():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    algo = LimitWeights(0.5)
+
+    assert algo(s)
+    assert s.temp["weights"] == {}
+    assert dts[0] in algo.allocation_history.index
+
+
+def test_limit_weights_raises_for_invalid_limit():
+    with pytest.raises(ValueError, match="0 < limit <= 1"):
+        LimitWeights(0.0)
+    with pytest.raises(ValueError, match="0 < limit <= 1"):
+        LimitWeights(1.5)
+
+
+def test_limit_weights_multi_iteration_redistribution_converges():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3", "c4"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    # First pass caps c1, redistributes enough to push c2 above the cap.
+    s.temp["weights"] = {"c1": 0.7, "c2": 0.2, "c3": 0.07, "c4": 0.03}
+
+    algo = LimitWeights(0.4)
+    assert algo(s)
+    out = s.temp["weights"]
+    assert sum(out.values()) == pytest.approx(1.0)
+    assert out["c1"] == pytest.approx(0.4)
+    assert out["c2"] == pytest.approx(0.4)
+    assert out["c3"] == pytest.approx(0.14)
+    assert out["c4"] == pytest.approx(0.06)
+    assert all(weight <= 0.4 + 1e-12 for weight in out.values())
+
+
+def test_limit_deltas_global_limit_clips_and_normalizes():
+    class _Target:
+        pass
+
+    target = _Target()
+    target.now = pd.Timestamp("2010-01-01")
+    target.temp = {"weights": {"c1": 0.7, "c2": 0.2, "c3": 0.1}}
+    target.children = {
+        "c1": mock.Mock(weight=0.4),
+        "c2": mock.Mock(weight=0.3),
+        "c3": mock.Mock(weight=0.3),
+    }
+
+    algo = LimitDeltas(0.1)
+    assert algo(target)
+    out = target.temp["weights"]
+    assert sum(out.values()) == pytest.approx(1.0)
+    for name, child in target.children.items():
+        assert abs(out[name] - child.weight) <= 0.1 + 1e-9
+    assert target.now in algo.allocation_history.index
+
+
+def test_limit_deltas_empty_weights_writes_empty_and_records_history():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["weights"] = {}
+
+    algo = LimitDeltas(0.1)
+    assert algo(s)
+    assert s.temp["weights"] == {}
+    assert dts[0] in algo.allocation_history.index
+
+
+def test_limit_deltas_returns_false_for_invalid_context_or_children():
+    algo = LimitDeltas(0.1)
+    target = mock.MagicMock(spec=[])
+    assert not algo(target)
+
+    class _Target:
+        pass
+
+    target2 = _Target()
+    target2.temp = {"weights": {"c1": 1.0}}
+    target2.now = pd.Timestamp("2020-01-01")
+    target2.children = []
+    assert not algo(target2)
+
+
+def test_limit_deltas_raises_for_invalid_limit():
+    with pytest.raises(ValueError, match="must be >= 0"):
+        LimitDeltas(-0.1)
+
+
+def test_limit_deltas_relaxes_effective_limit_to_keep_sum_to_one():
+    class _Target:
+        pass
+
+    target = _Target()
+    target.now = pd.Timestamp("2010-01-01")
+    target.temp = {"weights": {"c1": 0.6, "c2": 0.4}}
+    target.children = {
+        "c1": mock.Mock(weight=0.0),
+        "c2": mock.Mock(weight=0.0),
+    }
+
+    algo = LimitDeltas(0.1)
+    assert algo(target)
+    out = target.temp["weights"]
+    assert sum(out.values()) == pytest.approx(1.0)
+    assert out["c1"] == pytest.approx(0.5)
+    assert out["c2"] == pytest.approx(0.5)
