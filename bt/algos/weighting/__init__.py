@@ -18,6 +18,7 @@ Available Algos:
 - WeightMinVar
 - WeightMaxDiversification
 - LimitDeltas
+- LimitBenchmarkDeviation
 - LimitWeights
 """
 
@@ -34,6 +35,7 @@ from .mean_variance import WeightMeanVar
 from .min_variance import WeightMinVar
 from .max_diversification import WeightMaxDiversification
 from .modifiers import ScaleWeights
+from .modifiers import LimitBenchmarkDeviation
 from .modifiers import LimitDeltas
 from .modifiers import LimitWeights
 
@@ -43,6 +45,7 @@ __all__ = [
     "WeightAlgo",
     "WeightFixed",
     "ScaleWeights",
+    "LimitBenchmarkDeviation",
     "WeightFixedSchedule",
     "WeightInvVol",
     "WeightMarket",

@@ -1,10 +1,11 @@
 """Weighting post-processing modifiers."""
 
 from .scaling import ScaleWeights
-from .limits import LimitDeltas, LimitWeights
+from .limits import LimitBenchmarkDeviation, LimitDeltas, LimitWeights
 
 __all__ = [
     "ScaleWeights",
+    "LimitBenchmarkDeviation",
     "LimitDeltas",
     "LimitWeights",
 ]

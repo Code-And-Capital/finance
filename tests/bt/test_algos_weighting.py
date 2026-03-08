@@ -20,6 +20,7 @@ from bt.algos.weighting import (
     WeightMinVar,
     WeightMaxDiversification,
     WeightRandomly,
+    LimitBenchmarkDeviation,
     LimitDeltas,
     LimitWeights,
 )
@@ -362,7 +363,7 @@ def test_scale_weights():
 
     s.temp["weights"] = {"c1": 0.5, "c2": -0.4, "c3": 0}
     assert algo(s)
-    assert s.temp["weights"] == {"c1": -0.25, "c2": 0.2, "c3": 0}
+    assert s.temp["weights"] == {"c1": -0.25, "c2": 0.2}
 
 
 def test_scale_weights_records_allocation_history():
@@ -454,7 +455,7 @@ def test_weigh_target():
 
     s.update(dts[1])
     assert algo(s)
-    assert s.temp["weights"] == {"c1": 1.0, "c2": 0.0}
+    assert s.temp["weights"] == {"c1": 1.0}
 
     s.update(dts[2])
     assert not algo(s)
@@ -981,3 +982,97 @@ def test_limit_deltas_relaxes_effective_limit_to_keep_sum_to_one():
     assert sum(out.values()) == pytest.approx(1.0)
     assert out["c1"] == pytest.approx(0.5)
     assert out["c2"] == pytest.approx(0.5)
+
+
+def test_limit_benchmark_deviation_limits_and_normalizes():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2"], data=100.0)
+    benchmark = pd.DataFrame(index=dts, columns=["c1", "c2"], data=[[0.5, 0.5]])
+    s.setup(data, benchmark_wide=benchmark)
+    s.update(dts[0])
+    s.temp["weights"] = {"c1": 0.8, "c2": 0.2}
+
+    algo = LimitBenchmarkDeviation(limit=0.1, benchmark_weights="benchmark_wide")
+    assert algo(s)
+    out = s.temp["weights"]
+    assert sum(out.values()) == pytest.approx(1.0)
+    assert out["c1"] == pytest.approx(0.6)
+    assert out["c2"] == pytest.approx(0.4)
+    assert dts[0] in algo.allocation_history.index
+
+
+def test_limit_benchmark_deviation_returns_false_for_missing_benchmark_data():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    s.setup(data)
+    s.update(dts[0])
+    s.temp["weights"] = {"c1": 1.0}
+
+    algo = LimitBenchmarkDeviation(limit=0.1, benchmark_weights="missing_key")
+    assert not algo(s)
+
+
+def test_limit_benchmark_deviation_empty_weights_writes_empty():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1"], data=100.0)
+    benchmark = pd.DataFrame(index=dts, columns=["c1"], data=[[1.0]])
+    s.setup(data, benchmark_wide=benchmark)
+    s.update(dts[0])
+    s.temp["weights"] = {}
+
+    algo = LimitBenchmarkDeviation(limit=0.1, benchmark_weights="benchmark_wide")
+    assert algo(s)
+    assert s.temp["weights"] == {}
+    assert dts[0] in algo.allocation_history.index
+
+
+def test_limit_benchmark_deviation_handles_zero_benchmark_row_with_equal_fallback():
+    class _Target:
+        pass
+
+    target = _Target()
+    target.now = pd.Timestamp("2010-01-01")
+    target.temp = {"weights": {"c1": 0.6, "c2": 0.4}}
+    benchmark = pd.DataFrame(
+        index=[target.now],
+        columns=["c1", "c2"],
+        data=[[0.0, 0.0]],
+    )
+    target.get_data = lambda key: benchmark
+
+    algo = LimitBenchmarkDeviation(limit=0.1, benchmark_weights="benchmark_wide")
+    assert algo(target)
+    out = target.temp["weights"]
+    assert sum(out.values()) == pytest.approx(1.0)
+    assert out["c1"] == pytest.approx(0.6)
+    assert out["c2"] == pytest.approx(0.4)
+
+
+def test_limit_benchmark_deviation_raises_for_invalid_inputs():
+    with pytest.raises(TypeError, match="benchmark_weights"):
+        LimitBenchmarkDeviation(limit=0.1, benchmark_weights=123)
+    with pytest.raises(ValueError, match="must be >= 0"):
+        LimitBenchmarkDeviation(limit=-0.1, benchmark_weights="benchmark")
+
+
+def test_limit_benchmark_deviation_intersects_with_selected_and_normalizes_benchmark():
+    s = Strategy("s")
+    dts = pd.date_range("2010-01-01", periods=1)
+    data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=100.0)
+    benchmark = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=[[0.2, 0.2, 0.3]])
+    s.setup(data, benchmark_wide=benchmark)
+    s.update(dts[0])
+    s.temp["selected"] = ["c2", "c3"]
+    s.temp["weights"] = {"c2": 0.9, "c3": 0.1}
+
+    algo = LimitBenchmarkDeviation(limit=0.2, benchmark_weights="benchmark_wide")
+    assert algo(s)
+    out = s.temp["weights"]
+    assert set(out.keys()) == {"c2", "c3"}
+    assert sum(out.values()) == pytest.approx(1.0)
+    # Benchmarks on selected names normalize to c2=0.4, c3=0.6.
+    assert abs(out["c2"] - 0.4) <= 0.2 + 1e-9
+    assert abs(out["c3"] - 0.6) <= 0.2 + 1e-9

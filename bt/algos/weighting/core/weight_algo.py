@@ -5,6 +5,7 @@ from typing import Any
 import pandas as pd
 
 from bt.algos.core import Algo
+from utils.math_utils import is_zero
 
 
 class WeightAlgo(Algo):
@@ -57,9 +58,17 @@ class WeightAlgo(Algo):
         if weights is None:
             return {}
         if isinstance(weights, pd.Series):
-            return {k: float(v) for k, v in weights.dropna().to_dict().items()}
+            return {
+                k: float(v)
+                for k, v in weights.dropna().to_dict().items()
+                if not is_zero(float(v))
+            }
         if isinstance(weights, dict):
-            return {k: float(v) for k, v in weights.items() if pd.notna(v)}
+            return {
+                k: float(v)
+                for k, v in weights.items()
+                if pd.notna(v) and not is_zero(float(v))
+            }
         raise TypeError("weights must be a dict, pandas Series, or None.")
 
     @staticmethod

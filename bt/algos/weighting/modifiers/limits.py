@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Any
+import pandas as pd
 from bt.algos.weighting.core import WeightAlgo
 from utils.math_utils import validate_non_negative, validate_real
 
@@ -176,4 +177,169 @@ class LimitWeights(WeightAlgo):
 
         limited = self._limit_weights(weight_map)
         self._write_weights(temp, limited, now=now, record_history=True)
+        return True
+
+
+class LimitBenchmarkDeviation(WeightAlgo):
+    """Limit target-weight deviation from benchmark weights.
+
+    This modifier constrains ``target.temp['weights']`` to stay within
+    ``±limit`` around benchmark weights at ``target.now``. It uses the same
+    recursive clip+normalize pattern as ``LimitDeltas`` and guarantees output
+    sums to 1 by relaxing the effective limit only when strict feasibility
+    requires it.
+    """
+
+    def __init__(self, limit: float, benchmark_weights: str | pd.DataFrame) -> None:
+        """Initialize benchmark-deviation limiter.
+
+        Parameters
+        ----------
+        limit
+            Non-negative max absolute deviation from benchmark per security.
+        benchmark_weights
+            Either a wide benchmark-weight DataFrame indexed by date, or a key
+            resolved via ``target.get_data``.
+        """
+        super().__init__()
+        self.limit = validate_non_negative(validate_real(limit, "limit"), "limit")
+        if isinstance(benchmark_weights, pd.DataFrame):
+            self.benchmark_source = benchmark_weights
+            self.benchmark_source_key: str | None = None
+        elif isinstance(benchmark_weights, str):
+            self.benchmark_source = None
+            self.benchmark_source_key = benchmark_weights
+        else:
+            raise TypeError(
+                "LimitBenchmarkDeviation `benchmark_weights` must be a DataFrame or string key."
+            )
+
+    def _limit_deviation(
+        self,
+        benchmark_weights: dict[str, float],
+        target_weights: dict[str, float],
+    ) -> dict[str, float]:
+        """Recursively cap benchmark deviation with minimal global relaxation."""
+        tolerance = 1e-12
+        all_keys = set(benchmark_weights.keys())
+        if not all_keys:
+            return {}
+
+        n_assets = float(len(all_keys))
+        lower_sum = sum(float(benchmark_weights[k]) - self.limit for k in all_keys)
+        upper_sum = sum(float(benchmark_weights[k]) + self.limit for k in all_keys)
+        relax_from_lower = max(0.0, (lower_sum - 1.0) / n_assets)
+        relax_from_upper = max(0.0, (1.0 - upper_sum) / n_assets)
+        # Minimal one-shot relaxation needed for global feasibility.
+        effective_limit = self.limit + max(relax_from_lower, relax_from_upper)
+
+        def _recurse(candidate: dict[str, float]) -> dict[str, float]:
+            clipped: dict[str, float] = {}
+            for name in all_keys:
+                bench_weight = float(benchmark_weights.get(name, 0.0))
+                target_weight = float(candidate.get(name, 0.0))
+                deviation = target_weight - bench_weight
+                if abs(deviation) > effective_limit:
+                    clipped[name] = bench_weight + effective_limit * float(np.sign(deviation))
+                else:
+                    clipped[name] = target_weight
+
+            total_weight = float(sum(clipped.values()))
+            if total_weight > 0.0:
+                clipped = {k: w / total_weight for k, w in clipped.items()}
+            else:
+                return dict(benchmark_weights)
+
+            violations = [
+                abs(clipped[name] - float(benchmark_weights.get(name, 0.0)))
+                - effective_limit
+                for name in all_keys
+            ]
+            if all(v <= tolerance for v in violations):
+                return clipped
+
+            max_change = max(abs(clipped[k] - float(candidate.get(k, 0.0))) for k in all_keys)
+            if max_change <= tolerance:
+                return clipped
+            return _recurse(clipped)
+
+        return _recurse(dict(target_weights))
+
+    def _prepare_benchmark_inputs(
+        self,
+        target: Any,
+        temp: dict[str, Any],
+        now: pd.Timestamp,
+    ) -> dict[str, float] | None:
+        """Resolve, filter, and normalize benchmark weights for limiting.
+
+        Returns
+        -------
+        dict[str, float] | None
+            Normalized benchmark weights on success.
+            Returns ``{}`` when benchmark universe is empty after filtering.
+            Returns ``None`` when resolution/validation fails.
+        """
+        resolved = self._resolve_wide_data_row_at_now(
+            now=now,
+            inline_wide=self.benchmark_source,
+            wide_key=self.benchmark_source_key,
+            key_resolver=lambda key: target.get_data(key),
+        )
+        if resolved is None:
+            return None
+        _, benchmark_row = resolved
+        if not isinstance(benchmark_row, pd.Series):
+            return None
+
+        benchmark_series = benchmark_row[benchmark_row.notna()].astype(float)
+        selected_raw = temp.get("selected")
+        if selected_raw is not None:
+            if not isinstance(selected_raw, list):
+                return None
+            benchmark_series = benchmark_series.loc[
+                benchmark_series.index.intersection(selected_raw)
+            ]
+        if benchmark_series.empty:
+            return {}
+
+        benchmark_total = float(benchmark_series.sum())
+        if benchmark_total <= 0.0:
+            benchmark_series = pd.Series(
+                1.0 / len(benchmark_series),
+                index=benchmark_series.index,
+                dtype=float,
+            )
+        else:
+            benchmark_series = benchmark_series / benchmark_total
+
+        return benchmark_series.astype(float).to_dict()
+
+    def __call__(self, target: Any) -> bool:
+        """Apply benchmark-deviation constraint and write updated weights."""
+        temp = self._resolve_temp(target)
+        if temp is None:
+            return False
+        now = self._resolve_now(target)
+        if now is None:
+            return False
+
+        target_weights = self._to_weight_dict(temp.get("weights", {}))
+        if not target_weights:
+            self._write_weights(temp, {}, now=now, record_history=True)
+            return True
+
+        benchmark_weights = self._prepare_benchmark_inputs(target, temp, now)
+        if benchmark_weights is None:
+            return False
+        if not benchmark_weights:
+            self._write_weights(temp, {}, now=now, record_history=True)
+            return True
+
+        expanded_target = {
+            name: float(target_weights.get(name, 0.0))
+            for name in benchmark_weights.keys()
+        }
+        adjusted = self._limit_deviation(benchmark_weights, expanded_target)
+        self._write_weights(temp, adjusted, now=now, record_history=True)
         return True
