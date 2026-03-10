@@ -17,13 +17,13 @@ class IndexDataSource(BaseDataSource):
     def __init__(
         self,
         *,
-        tickers: Sequence[str] | str,
+        figis: Sequence[str] | str,
         start_date: str | None = None,
         end_date: str | None = None,
         configs_path: str | None = None,
     ) -> None:
         super().__init__()
-        self.tickers = tickers
+        self.figis = figis
         self.start_date = start_date
         self.end_date = end_date
         self.configs_path = configs_path
@@ -37,7 +37,7 @@ class IndexDataSource(BaseDataSource):
             type="info",
         )
         self.prices_data_source = PricesDataSource(
-            tickers=self.tickers,
+            figis=self.figis,
             start_date=self.start_date,
             end_date=self.end_date,
             configs_path=self.configs_path,
@@ -55,7 +55,7 @@ class IndexDataSource(BaseDataSource):
             out["RETURN"] = pd.Series(dtype="float64")
             return out
 
-        required = {"DATE", "TICKER", "ADJ_CLOSE"}
+        required = {"DATE", "FIGI", "ADJ_CLOSE"}
         missing = required.difference(data.columns)
         if missing:
             raise ValueError(
@@ -64,9 +64,9 @@ class IndexDataSource(BaseDataSource):
 
         out = data.copy()
         out["DATE"] = pd.to_datetime(out["DATE"])
-        out["TICKER"] = out["TICKER"].astype(str).str.upper()
-        out = out.sort_values(["TICKER", "DATE"]).reset_index(drop=True)
-        out["RETURN"] = out.groupby("TICKER", sort=False)["ADJ_CLOSE"].pct_change()
+        out["FIGI"] = out["FIGI"].astype(str).str.strip().str.upper()
+        out = out.sort_values(["FIGI", "DATE"]).reset_index(drop=True)
+        out["RETURN"] = out.groupby("FIGI", sort=False)["ADJ_CLOSE"].pct_change()
         return out
 
     def format(self, dates: Sequence[pd.Timestamp] | pd.Index | None = None) -> None:

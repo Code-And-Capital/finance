@@ -4,7 +4,7 @@ WITH latest_dates AS (
         MAX([DATE]) AS max_date
     FROM [dbo].[major_holders]
     WHERE 1=1
-    {ticker_filter}
+    {security_filter}
     {date_filter}
     GROUP BY [TICKER]
 )

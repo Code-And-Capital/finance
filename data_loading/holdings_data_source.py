@@ -29,7 +29,7 @@ class HoldingsDataSource(BaseDataSource):
         self.start_date = start_date
         self.end_date = end_date
         self.configs_path = configs_path
-        self.tickers: list[str] = []
+        self.figis: list[str] = []
 
         if self.source not in {"index", "llm"}:
             raise ValueError("source must be either 'index' or 'llm'.")
@@ -59,35 +59,33 @@ class HoldingsDataSource(BaseDataSource):
         )
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Normalize fields, enforce ordering, and store distinct holdings tickers."""
+        """Normalize fields, enforce ordering, and store distinct holdings FIGIs."""
         log(f"HoldingsDataSource: transforming {len(data)} rows", type="info")
         if data.empty:
-            self.tickers = []
+            self.figis = []
             log("HoldingsDataSource: received empty holdings dataframe", type="warning")
             return data.copy()
         out = data.copy()
         if "DATE" in out.columns:
             out["DATE"] = pd.to_datetime(out["DATE"])
-        if "TICKER" not in out.columns:
-            raise ValueError("Holdings data must include a TICKER column.")
+        if "FIGI" not in out.columns:
+            raise ValueError("Holdings data must include a FIGI column.")
 
-        ticker_series = out["TICKER"]
-        normalized_tickers = (
-            ticker_series[ticker_series.notna()].astype(str).str.strip().str.upper()
+        figi_series = out["FIGI"]
+        normalized_figis = (
+            figi_series[figi_series.notna()].astype(str).str.strip().str.upper()
         )
-        normalized_tickers = normalized_tickers[
-            ~normalized_tickers.isin(["", "NAN", "NONE"])
-        ]
-        out["TICKER"] = normalized_tickers.reindex(out.index)
-        self.tickers = normalized_tickers.drop_duplicates().tolist()
-        if not self.tickers:
-            raise ValueError("No tickers found in holdings data.")
+        normalized_figis = normalized_figis[~normalized_figis.isin(["", "NAN", "NONE"])]
+        out["FIGI"] = normalized_figis.reindex(out.index)
+        self.figis = normalized_figis.drop_duplicates().tolist()
+        if not self.figis:
+            raise ValueError("No FIGIs found in holdings data.")
         log(
-            f"HoldingsDataSource: extracted {len(self.tickers)} unique tickers",
+            f"HoldingsDataSource: extracted {len(self.figis)} unique FIGIs",
             type="info",
         )
 
-        order_cols = [col for col in ["DATE", "TICKER"] if col in out.columns]
+        order_cols = [col for col in ["DATE", "FIGI"] if col in out.columns]
         if order_cols:
             out = out.sort_values(order_cols).reset_index(drop=True)
         return out
@@ -119,10 +117,10 @@ class HoldingsDataSource(BaseDataSource):
             type="info",
         )
         outputs: Dict[str, pd.DataFrame] = {"holdings_long": data.copy()}
-        if {"DATE", "TICKER", "WEIGHT"}.issubset(data.columns):
+        if {"DATE", "FIGI", "WEIGHT"}.issubset(data.columns):
             weights_wide = data.pivot_table(
                 index="DATE",
-                columns="TICKER",
+                columns="FIGI",
                 values="WEIGHT",
                 aggfunc="last",
             )

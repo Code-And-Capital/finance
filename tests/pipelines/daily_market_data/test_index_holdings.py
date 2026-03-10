@@ -50,6 +50,18 @@ def test_download_holdings_run_full_processing(monkeypatch):
     monkeypatch.setattr(module, "ETF_FILE_NAMES", {"TESTFUND": "fakefile.xlsx"})
     monkeypatch.setattr(module, "TICKER_MAPPING", {"BAD": "GOOD"})
     monkeypatch.setattr(module.os.path, "exists", lambda _: True)
+    monkeypatch.setattr(
+        downloader,
+        "_run_openfigi_pipeline",
+        lambda *_args, **_kwargs: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_load_security_master",
+        lambda **_kwargs: pd.DataFrame(
+            {"TICKER": ["AAPL"], "NAME": ["Apple"], "FIGI": ["FIGI_AAPL"]}
+        ),
+    )
 
     removed_paths: list[str] = []
     monkeypatch.setattr(module.os, "remove", lambda p: removed_paths.append(p))
@@ -112,6 +124,18 @@ def test_run_default_does_not_write_to_azure(monkeypatch):
     )
     monkeypatch.setattr(module.os.path, "exists", lambda _: True)
     monkeypatch.setattr(module.os, "remove", lambda _: None)
+    monkeypatch.setattr(
+        downloader,
+        "_run_openfigi_pipeline",
+        lambda *_args, **_kwargs: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_load_security_master",
+        lambda **_kwargs: pd.DataFrame(
+            {"TICKER": ["AAPL"], "NAME": ["Apple"], "FIGI": ["FIGI_AAPL"]}
+        ),
+    )
 
     fake_raw_df = pd.DataFrame(
         {
@@ -154,6 +178,18 @@ def test_run_write_to_azure_writes_holdings(monkeypatch):
     )
     monkeypatch.setattr(module.os.path, "exists", lambda _: True)
     monkeypatch.setattr(module.os, "remove", lambda _: None)
+    monkeypatch.setattr(
+        downloader,
+        "_run_openfigi_pipeline",
+        lambda *_args, **_kwargs: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        downloader,
+        "_load_security_master",
+        lambda **_kwargs: pd.DataFrame(
+            {"TICKER": ["AAPL"], "NAME": ["Apple"], "FIGI": ["FIGI_AAPL"]}
+        ),
+    )
 
     fake_raw_df = pd.DataFrame(
         {
@@ -247,3 +283,85 @@ def test_run_removes_downloaded_file_when_load_fails(monkeypatch):
         downloader.run()
 
     assert removed_paths == [f"{downloader.download_folder}/fakefile.xlsx"]
+
+
+def test_attach_figi_merges_on_ticker_and_name_and_warns_missing(monkeypatch):
+    downloader = DownloadHoldings(
+        fund_name="TESTFUND",
+        url="http://dummy",
+        download_folder="/tmp",
+    )
+    holdings = pd.DataFrame(
+        {
+            "TICKER": ["AAPL", "MSFT"],
+            "NAME": ["Apple", "Microsoft"],
+            "WEIGHT": [0.5, 0.5],
+        }
+    )
+    security_master = pd.DataFrame(
+        {
+            "TICKER": ["AAPL"],
+            "NAME": ["Apple"],
+            "FIGI": ["FIGI_AAPL"],
+        }
+    )
+
+    import pipelines.daily_market_data.index_holdings as module
+
+    warned: list[str] = []
+    monkeypatch.setattr(
+        module,
+        "log",
+        lambda msg, type=None: warned.append(msg) if type == "warning" else None,
+    )
+
+    out = downloader._attach_figi(
+        holdings_df=holdings,
+        security_master_override=security_master,
+    )
+
+    assert out.loc[out["TICKER"] == "AAPL", "FIGI"].iloc[0] == "FIGI_AAPL"
+    assert out.loc[out["TICKER"] == "MSFT", "FIGI"].isna().iloc[0]
+    assert any("Holdings tickers missing from security_master" in m for m in warned)
+
+
+def test_dedupe_security_master_prefers_united_states_location():
+    downloader = DownloadHoldings(
+        fund_name="TESTFUND",
+        url="http://dummy",
+        download_folder="/tmp",
+    )
+    security_master = pd.DataFrame(
+        {
+            "TICKER": ["ABC", "ABC"],
+            "NAME": ["Alpha", "Alpha"],
+            "LOCATION": ["Canada", "United States"],
+            "DATE": ["2026-03-01", "2026-03-02"],
+            "FIGI": ["FIGI_CA", "FIGI_US"],
+        }
+    )
+
+    deduped = downloader._dedupe_security_master_for_holdings(security_master)
+    assert len(deduped) == 1
+    assert deduped["FIGI"].iloc[0] == "FIGI_US"
+
+
+def test_dedupe_security_master_prefers_earliest_date_when_no_united_states():
+    downloader = DownloadHoldings(
+        fund_name="TESTFUND",
+        url="http://dummy",
+        download_folder="/tmp",
+    )
+    security_master = pd.DataFrame(
+        {
+            "TICKER": ["XYZ", "XYZ"],
+            "NAME": ["Xylon", "Xylon"],
+            "LOCATION": ["Canada", "Canada"],
+            "DATE": ["2026-03-05", "2026-03-01"],
+            "FIGI": ["FIGI_NEWER", "FIGI_OLDER"],
+        }
+    )
+
+    deduped = downloader._dedupe_security_master_for_holdings(security_master)
+    assert len(deduped) == 1
+    assert deduped["FIGI"].iloc[0] == "FIGI_OLDER"

@@ -14,4 +14,4 @@ INNER JOIN latest_dates AS ld
     ON h.[INDEX] = ld.[INDEX]
     AND h.[DATE] = ld.max_date
 WHERE 1=1
-{ticker_filter}
+{security_filter}

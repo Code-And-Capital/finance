@@ -122,7 +122,11 @@ def test_run_write_to_azure_writes_all_financial_tables():
     pipeline.azure_data_source.read_sql_table = MagicMock(return_value=pd.DataFrame())
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    result = pipeline.run(write_to_azure=True, configs_path="config/configs.json")
+    result = pipeline.run(
+        write_to_azure=True,
+        configs_path="config/configs.json",
+        ticker_to_figi={"AAPL": "FIGI_AAPL"},
+    )
 
     pipeline.azure_data_source.get_engine.assert_called_once_with(
         configs_path="config/configs.json"
@@ -183,6 +187,7 @@ def test_run_write_to_azure_skips_rows_duplicated_minus_date():
     existing = pd.DataFrame(
         {
             "TICKER": ["AAPL"],
+            "FIGI": ["FIGI_AAPL"],
             "DATE": ["2025-01-01"],
             "ITEM": ["Revenue"],
             "VALUE": [100.0],
@@ -193,6 +198,6 @@ def test_run_write_to_azure_skips_rows_duplicated_minus_date():
     pipeline.azure_data_source.read_sql_table = MagicMock(return_value=existing)
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()

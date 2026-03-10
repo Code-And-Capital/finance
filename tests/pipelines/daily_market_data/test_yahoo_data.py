@@ -317,3 +317,46 @@ def test_filter_new_or_changed_rows_ignores_time_for_datetime_values():
     )
 
     assert out.empty
+
+
+def test_attach_figi_from_mapping_preserves_existing_figi_values():
+    pipeline = YahooData(tickers=["AAPL"])
+    frame = pd.DataFrame(
+        {
+            "TICKER": ["AAPL", "MSFT"],
+            "FIGI": ["EXISTING_FIGI", None],
+        }
+    )
+
+    out = pipeline._attach_figi_from_mapping(
+        frame,
+        {"AAPL": "FIGI_AAPL", "MSFT": "FIGI_MSFT"},
+    )
+
+    assert out.loc[out["TICKER"] == "AAPL", "FIGI"].iloc[0] == "EXISTING_FIGI"
+    assert out.loc[out["TICKER"] == "MSFT", "FIGI"].iloc[0] == "FIGI_MSFT"
+
+
+def test_load_existing_rows_for_figi_uses_figi_filter_query():
+    pipeline = YahooData(tickers=["AAPL"])
+    engine = object()
+    pipeline.azure_data_source.read_sql_table = MagicMock(
+        return_value=pd.DataFrame({"FIGI": ["FIGI_AAPL"]})
+    )
+    pipeline.sql_client.add_in_filter = MagicMock(return_value="FIGI IN ('FIGI_AAPL')")
+    pipeline.sql_client.build_select_with_filters_query = MagicMock(
+        return_value="SELECT * FROM dbo.prices WHERE FIGI IN ('FIGI_AAPL')"
+    )
+
+    out = pipeline._load_existing_rows_for_figi(
+        engine=engine,
+        table_name="prices",
+        figis=["FIGI_AAPL"],
+    )
+
+    assert len(out) == 1
+    pipeline.sql_client.add_in_filter.assert_called_once()
+    pipeline.sql_client.build_select_with_filters_query.assert_called_once_with(
+        table_name="prices",
+        filters_sql="FIGI IN ('FIGI_AAPL')",
+    )

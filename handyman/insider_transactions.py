@@ -6,15 +6,20 @@ from typing import Optional, Sequence
 
 import pandas as pd
 
-from handyman.base import DateLike, read_table_by_filters, run_sql_template
+from handyman.base import (
+    DateLike,
+    build_security_filter_sql,
+    read_table_by_filters,
+    run_sql_template,
+)
 from sql.script_factory import default_sql_client
 from utils.dataframe_utils import ensure_datetime_column
-from utils.list_utils import normalize_string_list
 
 
 def get_insider_transactions(
     *,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -25,6 +30,8 @@ def get_insider_transactions(
     ----------
     tickers
         Optional ticker filter.
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower-bound filter for ``DATE``.
     configs_path
@@ -42,15 +49,19 @@ def get_insider_transactions(
         df = read_table_by_filters(
             table_name="insider_transactions",
             tickers=tickers,
+            figis=figis,
             start_date=start_date,
             configs_path=configs_path,
         )
     else:
-        normalized_tickers = normalize_string_list(tickers, field_name="tickers")
-        ticker_filter = default_sql_client.add_in_filter("TICKER", normalized_tickers)
+        security_filter = build_security_filter_sql(
+            sql_client=default_sql_client,
+            tickers=tickers,
+            figis=figis,
+        )
         df = run_sql_template(
             sql_file="insider_transactions_latest.txt",
-            filters={"ticker_filter": ticker_filter, "date_filter": ""},
+            filters={"security_filter": security_filter, "date_filter": ""},
             configs_path=configs_path,
         )
     for column in ["DATE", "START_DATE"]:

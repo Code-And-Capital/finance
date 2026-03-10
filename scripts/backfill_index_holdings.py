@@ -1,10 +1,10 @@
-"""Backfill missing index-holdings dates from the latest available snapshot."""
+"""Backfill index holdings over a date range via holdings + price replay."""
 
 from __future__ import annotations
 
 from pathlib import Path
 import sys
-from typing import Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import bt
-from bt.algos.flow import RunOnce
+from bt.algos.flow import ClosePositionsAfterDates, RunAfterDate, RunOnce
 from bt.algos.portfolio_ops import Rebalance
 from bt.algos.selection import SelectAll, SelectWhere, SelectActive
 from bt.algos.weighting import WeightFixedSchedule
@@ -24,54 +24,29 @@ from bt.engine import Backtest
 from sqlalchemy import types as satypes
 
 from connectors.azure_data_source import default_azure_data_source
-from handyman.holdings import get_index_holdings
-from handyman.prices import get_prices
+from data_loading.runner import Runner
 from utils.logging import log
-
-
-def _normalize_target_dates(
-    target_dates: Sequence[str | pd.Timestamp],
-) -> pd.DatetimeIndex:
-    """Normalize, validate, and sort target dates."""
-    dates = pd.to_datetime(list(target_dates), errors="raise")
-    if len(dates) == 0:
-        raise ValueError("target_dates cannot be empty")
-    return pd.DatetimeIndex(sorted(pd.unique(dates)))
-
-
-def _build_weight_schedule(
-    *,
-    base_weights: pd.DataFrame,
-    target_dates: pd.DatetimeIndex,
-) -> pd.DataFrame:
-    """Create a date-indexed weight matrix using one base snapshot for all target dates."""
-    if base_weights.empty:
-        raise ValueError("base_weights is empty; cannot build schedule")
-
-    base_row = base_weights.iloc[[0]].copy()
-    rows = [base_row.assign(DATE=target_date) for target_date in target_dates]
-    scheduled = pd.concat(rows, ignore_index=True).set_index("DATE")
-    return scheduled.sort_index()
 
 
 def build_index_holdings_backfill(
     *,
     index_name: str,
-    source_date: str | pd.Timestamp,
-    target_dates: Sequence[str | pd.Timestamp],
+    start_date: str | pd.Timestamp,
+    end_date: str | pd.Timestamp,
     write_to_azure: bool = False,
     configs_path: str | None = None,
 ) -> pd.DataFrame:
-    """Build holdings rows for missing dates using latest available index constituents.
+    """Build index holdings from replayed weights over a date range.
 
     Parameters
     ----------
     index_name
-        Index name as stored in holdings table (example: ``"S&P 500"``).
-    source_date
-        Existing holdings snapshot date used as the base for duplicated weights.
-    target_dates
-        Dates that should be generated.
+        Index name as stored in holdings table (for example ``"S&P 500"``).
+    start_date
+        First date (inclusive) for holdings replay input. This should be the
+        last date that still has index holdings available in the source table.
+    end_date
+        Last date (inclusive) for holdings replay input.
     write_to_azure
         If True, append generated rows to Azure ``holdings`` table.
     configs_path
@@ -82,88 +57,88 @@ def build_index_holdings_backfill(
     pandas.DataFrame
         Backfilled holdings rows formatted to match the holdings table schema.
     """
-    dates = _normalize_target_dates(target_dates)
-    source_ts = pd.Timestamp(source_date).normalize()
-    log(f"Building holdings backfill for index='{index_name}' and {len(dates)} dates.")
+    start_ts = pd.Timestamp(start_date).normalize()
+    end_ts = pd.Timestamp(end_date).normalize()
+    if end_ts < start_ts:
+        raise ValueError("end_date must be on or after start_date.")
 
-    holdings = get_index_holdings(indices=index_name, start_date=source_ts)
-    if holdings.empty:
-        raise ValueError(
-            f"No holdings found for index '{index_name}' from source_date {source_ts.date()}."
-        )
-
-    holdings = holdings.copy()
-    holdings["DATE"] = pd.to_datetime(holdings["DATE"]).dt.normalize()
-    base_snapshot = holdings[holdings["DATE"] == source_ts].copy()
-    if base_snapshot.empty:
-        available_dates = sorted(holdings["DATE"].dt.date.unique().tolist())
-        raise ValueError(
-            f"No holdings found for index '{index_name}' on source_date {source_ts.date()}. "
-            f"Available dates from query: {available_dates[:10]}"
-        )
     log(
-        f"Using source snapshot date {source_ts.date()} with {len(base_snapshot)} rows."
+        "Building holdings backfill for "
+        f"index='{index_name}' start_date={start_ts.date()} end_date={end_ts.date()}",
+        type="info",
     )
 
-    all_columns = base_snapshot.columns.tolist()
-    base_meta = base_snapshot.drop(["DATE", "WEIGHT", "MARKET_VALUE", "PRICE"], axis=1)
-
-    base_weights = base_snapshot.pivot(
-        index="DATE", columns="TICKER", values="WEIGHT"
-    ).reset_index()
-    weight_schedule = _build_weight_schedule(
-        base_weights=base_weights, target_dates=dates
+    log("Running data-loading Runner for holdings/prices context.", type="info")
+    runner = Runner(
+        portfolio=[index_name],
+        start_date=start_ts.date().isoformat(),
+        end_date=end_ts.date().isoformat(),
+        configs_path=configs_path,
     )
-    in_index = weight_schedule > 0
+    _ = runner.run()
 
-    price_start_date = min(source_ts, dates.min()).date().isoformat()
-    prices = get_prices(weight_schedule.columns, start_date=price_start_date)
-    prices = prices.reindex(weight_schedule.index).ffill()
+    weights_wide = runner.holdings_data_source.formatted_data["weights_wide"]
+    in_portfolio = runner.holdings_data_source.formatted_data["in_portfolio_wide"]
+    prices = runner.prices_data_source.formatted_data["prices_wide_full_history"].shift(
+        1
+    )
+    last_valid_date = runner.prices_data_source.formatted_data["last_valid_date"]
 
-    if prices.empty:
-        raise ValueError("No price data available for the selected tickers/dates.")
+    if weights_wide.empty or in_portfolio.empty or prices.empty:
+        raise ValueError("Runner outputs are empty; cannot build backfill holdings.")
 
-    # Drop tickers with no usable prices across all requested dates.
-    missing_price_tickers = prices.columns[prices.isna().all()].tolist()
-    if missing_price_tickers:
-        log(
-            f"Dropping {len(missing_price_tickers)} tickers with no prices: "
-            f"{', '.join(missing_price_tickers)}",
-            type="warning",
+    prior_dates = prices.index[prices.index < start_ts]
+    output_dates = prices.index[prices.index > start_ts]
+    if len(prior_dates) == 0 or len(output_dates) == 0:
+        raise ValueError(
+            "Insufficient price history around holdings start; cannot derive run/output dates."
         )
-        prices = prices.drop(columns=missing_price_tickers)
-        weight_schedule = weight_schedule.drop(
-            columns=missing_price_tickers, errors="ignore"
-        )
-        in_index = in_index.drop(columns=missing_price_tickers, errors="ignore")
+    start_date_run = prior_dates[-1]
+    start_date_output = output_dates[0]
+
+    log(
+        "Derived replay dates "
+        f"start_date_run={pd.Timestamp(start_date_run).date()} "
+        f"start_date_output={pd.Timestamp(start_date_output).date()}",
+        type="info",
+    )
 
     strategy = Strategy(
         name="buy_and_hold",
         algos=[
+            ClosePositionsAfterDates(close_dates=last_valid_date),
+            RunAfterDate(start_date_run),
             RunOnce(),
-            SelectWhere(in_index),
+            SelectWhere(in_portfolio),
             SelectAll(),
             SelectActive(),
-            WeightFixedSchedule(weights=weight_schedule),
+            WeightFixedSchedule(weights=weights_wide),
             Rebalance(),
         ],
     )
+    log("Running backtest replay for holdings backfill.", type="info")
     result = bt.run(Backtest(strategy=strategy, data=prices, integer_positions=False))
 
     prices_long = prices.melt(
-        ignore_index=False, var_name="TICKER", value_name="PRICE"
+        ignore_index=False, var_name="FIGI", value_name="PRICE"
     ).reset_index(names="DATE")
     prices_long["PRICE"] = np.round(prices_long["PRICE"], 2)
 
     weights_long = (
         result.backtests["buy_and_hold"]
-        .security_weights.loc[dates]
-        .melt(ignore_index=False, var_name="TICKER", value_name="WEIGHT")
+        .security_weights.loc[start_date_output:]
+        .melt(ignore_index=False, var_name="FIGI", value_name="WEIGHT")
         .reset_index(names="DATE")
     )
 
-    out = weights_long.merge(base_meta, how="left", on="TICKER")
-    out = out.merge(prices_long, how="left", on=["DATE", "TICKER"])
+    holdings = runner.holdings_data_source.formatted_data["holdings_long"].copy()
+    holdings["DATE"] = pd.to_datetime(holdings["DATE"]).dt.normalize()
+    holdings = holdings[holdings["DATE"] == start_ts]
+    all_columns = holdings.columns.tolist()
+    base_meta = holdings.drop(["DATE", "WEIGHT", "MARKET_VALUE", "PRICE"], axis=1)
+
+    out = weights_long.merge(base_meta, how="left", on="FIGI")
+    out = out.merge(prices_long, how="left", on=["DATE", "FIGI"])
     out["MARKET_VALUE"] = out["QUANTITY"] * out["PRICE"]
     out = out[out["WEIGHT"] > 0].copy()
     out = out[all_columns]
@@ -178,18 +153,20 @@ def build_index_holdings_backfill(
             overwrite=False,
             dtype_overrides={"DATE": satypes.Date()},
         )
-        log(f"Wrote {len(out)} backfill rows to Azure table 'holdings'.")
+        log(f"Wrote {len(out)} backfill rows to Azure table 'holdings'.", type="info")
 
-    log(f"Backfill completed for index='{index_name}': {len(out)} rows.")
+    log(f"Backfill completed for index='{index_name}': {len(out)} rows.", type="info")
     return out
 
 
 if __name__ == "__main__":
-    demo_dates = ["2026-02-20", "2026-02-23", "2026-02-24", "2026-02-25", "2026-02-26"]
+    params: dict[str, Any] = {
+        "index_name": "Russell 1000",
+        "start_date": "2026-02-20",
+        "end_date": "2026-02-27",
+        "write_to_azure": True,
+    }
     dataframe = build_index_holdings_backfill(
-        index_name="Russell 1000",
-        source_date="2026-02-27",
-        target_dates=demo_dates,
-        write_to_azure=True,
+        **params,
     )
     print(dataframe.head())

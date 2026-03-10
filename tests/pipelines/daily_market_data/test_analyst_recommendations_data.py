@@ -84,12 +84,17 @@ def test_analyst_recommendations_skip_write_when_duplicates_minus_date():
     pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
     pipeline.azure_data_source.read_sql_table = MagicMock(
         return_value=pd.DataFrame(
-            {"TICKER": ["AAPL"], "DATE": ["2024-01-01"], "BUY": [10]}
+            {
+                "TICKER": ["AAPL"],
+                "FIGI": ["FIGI_AAPL"],
+                "DATE": ["2024-01-01"],
+                "BUY": [10],
+            }
         )
     )
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()
 

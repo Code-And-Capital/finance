@@ -96,6 +96,7 @@ def test_options_data_run_write_to_azure_skips_rows_duplicated_minus_date():
     existing = pd.DataFrame(
         {
             "TICKER": ["AAPL"],
+            "FIGI": ["FIGI_AAPL"],
             "DATE": ["2024-01-01"],
             "CONTRACTSYMBOL": ["AAPL240119C00100000"],
             "OPTION_TYPE": ["Call"],
@@ -107,6 +108,6 @@ def test_options_data_run_write_to_azure_skips_rows_duplicated_minus_date():
     pipeline.azure_data_source.read_sql_table = MagicMock(return_value=existing)
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()

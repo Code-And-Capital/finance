@@ -6,6 +6,10 @@ from connectors.selenium_data_source import (
 from connectors.sqlite_data_source import SQLiteDataSource, default_sqlite_data_source
 from connectors.xls_data_source import XLSDataSource, default_xls_data_source
 from connectors.yahoo_data_source import YahooDataClient
+from connectors.open_figi_data_source import (
+    OpenFigiDataSource,
+    default_open_figi_data_source,
+)
 
 __all__ = [
     "AzureDataSource",
@@ -17,4 +21,6 @@ __all__ = [
     "XLSDataSource",
     "default_xls_data_source",
     "YahooDataClient",
+    "OpenFigiDataSource",
+    "default_open_figi_data_source",
 ]

@@ -42,14 +42,45 @@ def run_sql_template(
     return default_azure_data_source.read_sql_table(query=query, engine=engine)
 
 
+def build_security_filter_sql(
+    *,
+    sql_client: SQLClient,
+    tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
+    ticker_column: str = "TICKER",
+    figi_column: str = "FIGI",
+) -> str:
+    """Build a single security filter clause from tickers or FIGIs.
+
+    Exactly one of ``tickers`` or ``figis`` may be provided.
+    """
+    if tickers is not None and figis is not None:
+        raise ValueError("Provide only one of `tickers` or `figis`.")
+
+    if figis is not None:
+        normalized_figis = normalize_string_list(figis, field_name="figis")
+        return sql_client.add_in_filter(
+            sql_client.quote_ident(figi_column),
+            normalized_figis,
+        )
+
+    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
+    return sql_client.add_in_filter(
+        sql_client.quote_ident(ticker_column),
+        normalized_tickers,
+    )
+
+
 def read_table_by_filters(
     *,
     table_name: str,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     end_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     ticker_column: str = "TICKER",
+    figi_column: str = "FIGI",
     date_column: str = "DATE",
 ) -> pd.DataFrame:
     """Read an Azure table using optional ticker and date filters.
@@ -60,6 +91,8 @@ def read_table_by_filters(
         Target Azure SQL table name.
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to ``date_column``.
     end_date
@@ -68,6 +101,8 @@ def read_table_by_filters(
         Optional path to the configuration file with Azure credentials.
     ticker_column
         Column name used for ticker filtering.
+    figi_column
+        Column name used for FIGI filtering.
     date_column
         Column name used for date filtering.
 
@@ -77,10 +112,12 @@ def read_table_by_filters(
         Query result rows from the selected table.
     """
     sql_client = SQLClient()
-    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
-    ticker_filter = sql_client.add_in_filter(
-        sql_client.quote_ident(ticker_column),
-        normalized_tickers,
+    security_filter = build_security_filter_sql(
+        sql_client=sql_client,
+        tickers=tickers,
+        figis=figis,
+        ticker_column=ticker_column,
+        figi_column=figi_column,
     )
     date_filter = sql_client.add_date_filter(
         f"CAST({sql_client.quote_ident(date_column)} AS date)",
@@ -92,7 +129,7 @@ def read_table_by_filters(
     )
     query = sql_client.build_select_with_filters_query(
         table_name=table_name,
-        filters_sql=f"{ticker_filter}\n{date_filter}\n{end_date_filter}".rstrip(),
+        filters_sql=f"{security_filter}\n{date_filter}\n{end_date_filter}".rstrip(),
     )
     engine = default_azure_data_source.get_engine(configs_path=configs_path)
     return default_azure_data_source.read_sql_table(query=query, engine=engine)

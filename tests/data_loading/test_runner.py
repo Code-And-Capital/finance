@@ -9,7 +9,7 @@ from data_loading.prices_data_source import PricesDataSource
 from data_loading.runner import Runner
 
 
-def test_runner_executes_and_propagates_tickers(monkeypatch):
+def test_runner_executes_and_propagates_figis(monkeypatch):
     captured: dict[str, object] = {"price_calls": []}
 
     monkeypatch.setattr(
@@ -17,44 +17,44 @@ def test_runner_executes_and_propagates_tickers(monkeypatch):
         lambda **_: pd.DataFrame(
             {
                 "DATE": ["2026-03-01", "2026-03-01", "2026-03-01"],
-                "TICKER": ["aapl", "msft", "aapl"],
+                "FIGI": ["aapl", "msft", "aapl"],
                 "WEIGHT": [0.5, 0.5, 0.5],
             }
         ),
     )
 
     def fake_get_prices(**kwargs):
-        captured["price_calls"].append(kwargs["tickers"])
-        captured["prices_tickers"] = kwargs["tickers"]
+        captured["price_calls"].append(kwargs["figis"])
+        captured["prices_figis"] = kwargs["figis"]
         captured["prices_start_date"] = kwargs.get("start_date")
         captured["prices_end_date"] = kwargs.get("end_date")
         captured["prices_configs_path"] = kwargs.get("configs_path")
-        tickers = kwargs["tickers"]
-        if tickers == ["AAPL", "MSFT"]:
+        figis = kwargs["figis"]
+        if figis == ["AAPL", "MSFT"]:
             return pd.DataFrame(
                 {
                     "DATE": ["2026-03-01", "2026-03-01"],
-                    "TICKER": ["AAPL", "MSFT"],
+                    "FIGI": ["AAPL", "MSFT"],
                     "ADJ_CLOSE": [100.0, 200.0],
                 }
             )
         return pd.DataFrame(
             {
                 "DATE": ["2026-03-01", "2026-03-02"],
-                "TICKER": ["^GSPC", "^GSPC"],
+                "FIGI": ["^GSPC", "^GSPC"],
                 "ADJ_CLOSE": [5000.0, 5050.0],
             }
         )
 
     def fake_get_company_info(**kwargs):
-        captured["security_tickers"] = kwargs["tickers"]
+        captured["security_figis"] = kwargs["figis"]
         captured["security_start_date"] = kwargs.get("start_date")
         captured["security_end_date"] = kwargs.get("end_date")
         captured["security_configs_path"] = kwargs.get("configs_path")
         return pd.DataFrame(
             {
                 "DATE": ["2026-03-01", "2026-03-01"],
-                "TICKER": ["AAPL", "MSFT"],
+                "FIGI": ["AAPL", "MSFT"],
                 "NAME": ["Apple", "Microsoft"],
                 "SECTOR": ["Technology", "Technology"],
             }
@@ -68,7 +68,7 @@ def test_runner_executes_and_propagates_tickers(monkeypatch):
     runner = Runner(
         portfolio="S&P 500",
         holdings_source="index",
-        index_tickers=["^GSPC"],
+        index_figis=["^GSPC"],
         start_date="2026-01-01",
         end_date="2026-02-28",
         configs_path="config/default.yaml",
@@ -81,7 +81,7 @@ def test_runner_executes_and_propagates_tickers(monkeypatch):
     assert isinstance(out["security"], CompanyInfoDataSource)
     assert captured["price_calls"][0] == ["AAPL", "MSFT"]
     assert captured["price_calls"][1] == ["^GSPC"]
-    assert captured["security_tickers"] == ["AAPL", "MSFT"]
+    assert captured["security_figis"] == ["AAPL", "MSFT"]
     assert captured["prices_start_date"] == "2025-01-01"
     assert captured["prices_end_date"] == "2026-02-28"
     assert captured["prices_configs_path"] == "config/default.yaml"
@@ -97,13 +97,13 @@ def test_runner_executes_and_propagates_tickers(monkeypatch):
     assert list(security_dates) == list(prices_dates)
 
 
-def test_runner_skips_index_when_index_tickers_is_none(monkeypatch):
+def test_runner_skips_index_when_index_figis_is_none(monkeypatch):
     monkeypatch.setattr(
         "data_loading.holdings_data_source.get_index_holdings",
         lambda **_: pd.DataFrame(
             {
                 "DATE": ["2026-03-01"],
-                "TICKER": ["aapl"],
+                "FIGI": ["aapl"],
                 "WEIGHT": [0.5],
             }
         ),
@@ -113,22 +113,22 @@ def test_runner_skips_index_when_index_tickers_is_none(monkeypatch):
         lambda **_: pd.DataFrame(
             {
                 "DATE": ["2026-03-01"],
-                "TICKER": ["AAPL"],
+                "FIGI": ["AAPL"],
                 "ADJ_CLOSE": [100.0],
             }
         ),
     )
     monkeypatch.setattr(
         "data_loading.company_info_data_source.get_company_info",
-        lambda **_: pd.DataFrame({"DATE": ["2026-03-01"], "TICKER": ["AAPL"]}),
+        lambda **_: pd.DataFrame({"DATE": ["2026-03-01"], "FIGI": ["AAPL"]}),
     )
 
-    runner = Runner(portfolio="S&P 500", index_tickers=None)
+    runner = Runner(portfolio="S&P 500", index_figis=None)
     out = runner.run()
     assert out["index"] is None
 
 
-def test_runner_raises_when_holdings_has_no_ticker_column(monkeypatch):
+def test_runner_raises_when_holdings_has_no_figi_column(monkeypatch):
     import pytest
 
     monkeypatch.setattr(
@@ -137,20 +137,20 @@ def test_runner_raises_when_holdings_has_no_ticker_column(monkeypatch):
     )
     runner = Runner(portfolio="S&P 500")
 
-    with pytest.raises(ValueError, match="TICKER"):
+    with pytest.raises(ValueError, match="FIGI"):
         runner.run()
 
 
-def test_runner_raises_when_no_tickers_available(monkeypatch):
+def test_runner_raises_when_no_figis_available(monkeypatch):
     import pytest
 
     monkeypatch.setattr(
         "data_loading.holdings_data_source.get_index_holdings",
         lambda **_: pd.DataFrame(
-            {"DATE": ["2026-03-01"], "TICKER": [None], "WEIGHT": [1.0]}
+            {"DATE": ["2026-03-01"], "FIGI": [None], "WEIGHT": [1.0]}
         ),
     )
     runner = Runner(portfolio="S&P 500")
 
-    with pytest.raises(ValueError, match="No tickers"):
+    with pytest.raises(ValueError, match="No FIGIs"):
         runner.run()

@@ -33,6 +33,7 @@ class InsiderTransactionsData(YahooData):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Run insider transactions pull workflow with missing-ticker retries."""
         log(
@@ -51,12 +52,18 @@ class InsiderTransactionsData(YahooData):
         for column in ["DATE", "START_DATE"]:
             if column in dataframe.columns:
                 dataframe = dataframe_utils.ensure_datetime_column(dataframe, column)
+        if "URL" in dataframe.columns:
+            normalized_url = dataframe["URL"].astype("string").str.strip()
+            dataframe["URL"] = normalized_url.where(normalized_url != "", pd.NA)
+        dataframe = self._attach_figi_from_mapping(dataframe, ticker_to_figi)
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            existing_df = self._load_existing_rows_for_tickers(
+            figi_values = self._extract_figi_values(dataframe)
+            existing_df = self._load_existing_rows_for_figi(
                 engine=engine,
                 table_name=self.table_name,
+                figis=figi_values,
                 log_context=self.table_name,
             )
             rows_to_write = self._filter_new_or_changed_rows(
@@ -74,6 +81,11 @@ class InsiderTransactionsData(YahooData):
                 )
             else:
                 rows_to_write = rows_to_write.copy()
+                if "URL" in rows_to_write.columns:
+                    normalized_url = rows_to_write["URL"].astype("string").str.strip()
+                    rows_to_write["URL"] = normalized_url.where(
+                        normalized_url != "", pd.NA
+                    )
                 for column in ["DATE", "START_DATE"]:
                     if column in rows_to_write.columns:
                         rows_to_write[column] = (

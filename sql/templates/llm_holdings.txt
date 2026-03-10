@@ -2,4 +2,5 @@ SELECT *
 FROM [dbo].[llm]
 WHERE 1=1
 {llm_filter}
+{security_filter}
 {date_filter}

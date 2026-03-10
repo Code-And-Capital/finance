@@ -48,9 +48,11 @@ class _BaseAnalystData(YahooData):
 
     def _write_table(self, *, dataframe: pd.DataFrame, engine) -> None:
         """Write one analyst table after dedupe-minus-date checks."""
-        existing_df = self._load_existing_rows_for_tickers(
+        figi_values = self._extract_figi_values(dataframe)
+        existing_df = self._load_existing_rows_for_figi(
             engine=engine,
             table_name=self.table_name,
+            figis=figi_values,
             log_context=self.table_name,
         )
         rows_to_write = self._filter_new_or_changed_rows(
@@ -91,6 +93,7 @@ class _BaseAnalystData(YahooData):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Run analyst dataset workflow and return the resulting DataFrame."""
         log(
@@ -98,6 +101,7 @@ class _BaseAnalystData(YahooData):
             f"{len(self.tickers)} tickers, write_to_azure={write_to_azure}"
         )
         dataframe = self._pull_data()
+        dataframe = self._attach_figi_from_mapping(dataframe, ticker_to_figi)
         log(f"Pulled {self.log_label} rows: {len(dataframe)}")
         returned_tickers = self._extract_returned_tickers(dataframe)
         missing_tickers = [

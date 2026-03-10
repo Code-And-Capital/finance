@@ -15,6 +15,7 @@ from .insider_transactions_data import InsiderTransactionsData
 from .info_data import InfoData
 from .index_holdings import DownloadHoldings, ETF_FILE_NAMES, ETF_URLS, TICKER_MAPPING
 from .options_data import OptionsData
+from .openfigi_data import OpenFigiData
 from .pricing_data import AnalystPriceTargetsData, PricingData
 from .yahoo_data import YahooData
 
@@ -32,6 +33,7 @@ __all__ = [
     "InfoData",
     "MajorHolders",
     "OptionsData",
+    "OpenFigiData",
     "PricingData",
     "YahooData",
     "ETF_URLS",

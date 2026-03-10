@@ -79,6 +79,28 @@ def test_insider_transactions_run_write_to_azure_writes_table():
     assert str(kwargs["df"]["START_DATE"].iloc[0]) == "2023-12-31"
 
 
+def test_insider_transactions_run_normalizes_blank_url_to_nan_before_write():
+    pipeline = InsiderTransactionsData(tickers=["AAPL"])
+    pulled = pd.DataFrame(
+        {
+            "TICKER": ["AAPL"],
+            "DATE": ["2024-01-02"],
+            "START_DATE": ["2023-12-31"],
+            "URL": [""],
+        }
+    )
+    pipeline._pull_with_missing_ticker_retries = MagicMock(return_value=pulled)
+    pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
+    pipeline.azure_data_source.read_sql_table = MagicMock(return_value=pd.DataFrame())
+    pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
+
+    out = pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
+
+    assert pd.isna(out.loc[0, "URL"])
+    kwargs = pipeline.azure_data_source.write_sql_table.call_args.kwargs
+    assert pd.isna(kwargs["df"].loc[0, "URL"])
+
+
 def test_insider_transactions_run_write_to_azure_skips_rows_duplicated_minus_date():
     pipeline = InsiderTransactionsData(tickers=["AAPL"])
     pulled = pd.DataFrame(
@@ -93,6 +115,7 @@ def test_insider_transactions_run_write_to_azure_skips_rows_duplicated_minus_dat
     existing = pd.DataFrame(
         {
             "TICKER": ["AAPL"],
+            "FIGI": ["FIGI_AAPL"],
             "DATE": ["2024-01-01"],
             "INSIDER": ["John Doe"],
             "SHARES": [1000],
@@ -104,6 +127,6 @@ def test_insider_transactions_run_write_to_azure_skips_rows_duplicated_minus_dat
     pipeline.azure_data_source.read_sql_table = MagicMock(return_value=existing)
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()

@@ -33,14 +33,39 @@ def test_get_prices_returns_long_dataframe(
 
     assert captured["sql_file"] == "prices.txt"
     filters = captured["filters"]
-    assert "AAPL" in filters["ticker_filter"]
-    assert "MSFT" in filters["ticker_filter"]
+    assert "AAPL" in filters["security_filter"]
+    assert "MSFT" in filters["security_filter"]
     assert filters["date_filter"] == "AND DATE >= '2024-01-01'"
 
     assert isinstance(result, pd.DataFrame)
     assert set(result.columns) == {"DATE", "TICKER", "ADJ_CLOSE"}
     assert pd.api.types.is_datetime64_any_dtype(result["DATE"])
     assert len(result) == 3
+
+
+def test_get_prices_supports_figi_filter(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    def fake_run_sql_template(*, sql_file, filters, configs_path):
+        captured["filters"] = filters
+        return pd.DataFrame(
+            {
+                "DATE": ["2024-01-01"],
+                "TICKER": ["AAPL"],
+                "ADJ_CLOSE": [100.0],
+            }
+        )
+
+    monkeypatch.setattr("handyman.prices.run_sql_template", fake_run_sql_template)
+
+    _ = get_prices(figis=["BBG000B9XRY4"])
+    assert "FIGI" in captured["filters"]["security_filter"]
+    assert "BBG000B9XRY4" in captured["filters"]["security_filter"]
+
+
+def test_get_prices_rejects_tickers_and_figis_together():
+    with pytest.raises(ValueError, match="Provide only one of `tickers` or `figis`"):
+        get_prices(tickers=["AAPL"], figis=["BBG000B9XRY4"])
 
 
 def test_get_prices_includes_end_date_filter(monkeypatch: pytest.MonkeyPatch):
@@ -138,6 +163,6 @@ def test_get_analyst_price_targets_latest_uses_template_and_ignores_start_date(
     )
 
     assert captured["sql_file"] == "analyst_price_targets_latest.txt"
-    assert "AAPL" in captured["filters"]["ticker_filter"]
+    assert "AAPL" in captured["filters"]["security_filter"]
     assert captured["filters"]["date_filter"] == ""
     assert pd.api.types.is_datetime64_any_dtype(out["DATE"])

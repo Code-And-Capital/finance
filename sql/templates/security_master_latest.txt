@@ -2,14 +2,15 @@ WITH latest_dates AS (
     SELECT
         [TICKER],
         MAX([DATE]) AS max_date
-    FROM [dbo].[analyst_upgrades_downgrades]
+    FROM [dbo].[security_master]
     WHERE 1=1
     {security_filter}
+    {name_filter}
     {date_filter}
     GROUP BY [TICKER]
 )
-SELECT aud.*
-FROM [dbo].[analyst_upgrades_downgrades] AS aud
+SELECT sm.*
+FROM [dbo].[security_master] AS sm
 INNER JOIN latest_dates AS ld
-    ON aud.[TICKER] = ld.[TICKER]
-    AND aud.[DATE] = ld.max_date
+    ON sm.[TICKER] = ld.[TICKER]
+    AND sm.[DATE] = ld.max_date

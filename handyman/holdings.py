@@ -6,7 +6,7 @@ from typing import Optional, Sequence
 
 import pandas as pd
 
-from handyman.base import DateLike, run_sql_template
+from handyman.base import DateLike, build_security_filter_sql, run_sql_template
 from sql.script_factory import default_sql_client
 from utils.dataframe_utils import ensure_datetime_column
 from utils.list_utils import normalize_string_list
@@ -15,6 +15,7 @@ from utils.list_utils import normalize_string_list
 def get_index_holdings(
     indices: Optional[Sequence[str] | str] = None,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     end_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
@@ -28,6 +29,8 @@ def get_index_holdings(
         Optional index names for filtering (for example ``SP500``).
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to ``DATE``.
     end_date
@@ -44,7 +47,11 @@ def get_index_holdings(
         Holdings rows with ``DATE`` coerced to datetime.
     """
     normalized_indices = normalize_string_list(indices, field_name="indices")
-    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
+    security_filter = build_security_filter_sql(
+        sql_client=default_sql_client,
+        tickers=tickers,
+        figis=figis,
+    )
     sql_file = "holdings_latest.txt" if get_latest else "holdings.txt"
     date_filter = (
         ""
@@ -65,9 +72,7 @@ def get_index_holdings(
             "index_filter": default_sql_client.add_in_filter(
                 '"INDEX"', normalized_indices
             ),
-            "ticker_filter": default_sql_client.add_in_filter(
-                "TICKER", normalized_tickers
-            ),
+            "security_filter": security_filter,
             "date_filter": date_filter,
         },
         configs_path=configs_path,
@@ -78,6 +83,8 @@ def get_index_holdings(
 
 def get_llm_holdings(
     llms: Optional[Sequence[str] | str] = None,
+    tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     end_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
@@ -89,6 +96,10 @@ def get_llm_holdings(
     ----------
     llms
         Optional LLM strategy names for filtering.
+    tickers
+        Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to ``DATE``.
     end_date
@@ -105,6 +116,11 @@ def get_llm_holdings(
         Holdings rows with ``DATE`` coerced to datetime.
     """
     normalized_llms = normalize_string_list(llms, field_name="llms")
+    security_filter = build_security_filter_sql(
+        sql_client=default_sql_client,
+        tickers=tickers,
+        figis=figis,
+    )
     sql_file = "llm_holdings_latest.txt" if get_latest else "llm_holdings.txt"
     date_filter = (
         ""
@@ -123,6 +139,7 @@ def get_llm_holdings(
         sql_file=sql_file,
         filters={
             "llm_filter": default_sql_client.add_in_filter("strategy", normalized_llms),
+            "security_filter": security_filter,
             "date_filter": date_filter,
         },
         configs_path=configs_path,

@@ -112,11 +112,32 @@ class FinancialData(YahooData):
                 type="warning",
             )
 
+    @staticmethod
+    def _drop_all_null_payload_rows(dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Drop rows where all payload columns are null.
+
+        Key columns ``DATE``, ``TICKER``, and ``REPORT_DATE`` are excluded from
+        the null check.
+        """
+        if dataframe.empty:
+            return dataframe
+
+        excluded = {"DATE", "TICKER", "REPORT_DATE"}
+        payload_columns = [
+            column for column in dataframe.columns if column not in excluded
+        ]
+        if not payload_columns:
+            return dataframe.iloc[0:0].copy()
+
+        mask = dataframe[payload_columns].notna().any(axis=1)
+        return dataframe.loc[mask].copy()
+
     def run(
         self,
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> dict[str, pd.DataFrame]:
         """Run the full financial pull sequence and return all statement datasets."""
         outputs: dict[str, pd.DataFrame] = {}
@@ -127,6 +148,7 @@ class FinancialData(YahooData):
                 statement_type=statement_type,
                 annual=annual,
             )
+            outputs[key] = self._attach_figi_from_mapping(outputs[key], ticker_to_figi)
 
             has_next = index < len(self._PULL_SEQUENCE) - 1
             if has_next and self.pause_seconds > 0:
@@ -142,19 +164,28 @@ class FinancialData(YahooData):
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
             for key, dataframe in outputs.items():
                 table_name = self._TABLE_NAME_MAP[key]
-                existing_df = self._load_existing_rows_for_tickers(
+                filtered_dataframe = self._drop_all_null_payload_rows(dataframe)
+                dropped_count = len(dataframe) - len(filtered_dataframe)
+                if dropped_count > 0:
+                    log(
+                        f"Dropped {dropped_count} all-null payload rows for '{table_name}' "
+                        "(excluding DATE/TICKER/REPORT_DATE)."
+                    )
+                figi_values = self._extract_figi_values(filtered_dataframe)
+                existing_df = self._load_existing_rows_for_figi(
                     engine=engine,
                     table_name=table_name,
+                    figis=figi_values,
                     log_context=table_name,
                 )
                 rows_to_write = self._filter_new_or_changed_rows(
-                    incoming_df=dataframe,
+                    incoming_df=filtered_dataframe,
                     existing_df=existing_df,
                     exclude_columns={"DATE"},
                 )
                 log(
                     f"Financial rows eligible for write to '{table_name}' after diff check: "
-                    f"{len(rows_to_write)}/{len(dataframe)}"
+                    f"{len(rows_to_write)}/{len(filtered_dataframe)}"
                 )
                 if rows_to_write.empty:
                     log(
@@ -197,6 +228,7 @@ class EPSRevisionsData(YahooData):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Run EPS revisions pull workflow with missing-ticker retries."""
         log(
@@ -213,13 +245,16 @@ class EPSRevisionsData(YahooData):
         if "DATE" in dataframe.columns:
             dataframe = dataframe_utils.ensure_datetime_column(dataframe, "DATE")
             dataframe["DATE"] = dataframe["DATE"].dt.date
+        dataframe = self._attach_figi_from_mapping(dataframe, ticker_to_figi)
         log(f"Pulled EPS revisions rows: {len(dataframe)}")
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            existing_df = self._load_existing_rows_for_tickers(
+            figi_values = self._extract_figi_values(dataframe)
+            existing_df = self._load_existing_rows_for_figi(
                 engine=engine,
                 table_name=self.table_name,
+                figis=figi_values,
                 log_context=self.table_name,
             )
             rows_to_write = self._filter_new_or_changed_rows(
@@ -267,6 +302,7 @@ class EarningsSurprisesData(YahooData):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Run earnings surprises pull workflow with missing-ticker retries."""
         log(
@@ -284,13 +320,16 @@ class EarningsSurprisesData(YahooData):
             if column in dataframe.columns:
                 dataframe = dataframe_utils.ensure_datetime_column(dataframe, column)
                 dataframe[column] = dataframe[column].dt.date
+        dataframe = self._attach_figi_from_mapping(dataframe, ticker_to_figi)
         log(f"Pulled earnings surprises rows: {len(dataframe)}")
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            existing_df = self._load_existing_rows_for_tickers(
+            figi_values = self._extract_figi_values(dataframe)
+            existing_df = self._load_existing_rows_for_figi(
                 engine=engine,
                 table_name=self.table_name,
+                figis=figi_values,
                 log_context=self.table_name,
             )
             rows_to_write = self._filter_new_or_changed_rows(
@@ -365,20 +404,27 @@ class EstimatesData(YahooData):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> dict[str, pd.DataFrame]:
         """Run all estimate pulls and optionally write them to Azure."""
         outputs: dict[str, pd.DataFrame] = {
             estimate_type: self._pull_estimate(estimate_type=estimate_type)
             for estimate_type in self._ESTIMATE_TYPES
         }
+        outputs = {
+            estimate_type: self._attach_figi_from_mapping(dataframe, ticker_to_figi)
+            for estimate_type, dataframe in outputs.items()
+        }
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
             for estimate_type, dataframe in outputs.items():
                 table_name = self._TABLE_NAME_MAP[estimate_type]
-                existing_df = self._load_existing_rows_for_tickers(
+                figi_values = self._extract_figi_values(dataframe)
+                existing_df = self._load_existing_rows_for_figi(
                     engine=engine,
                     table_name=table_name,
+                    figis=figi_values,
                     log_context=table_name,
                 )
                 rows_to_write = self._filter_new_or_changed_rows(

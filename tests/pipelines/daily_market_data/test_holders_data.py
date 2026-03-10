@@ -90,6 +90,7 @@ def test_holders_skip_write_when_rows_duplicate_minus_date():
     inst_existing = pd.DataFrame(
         {
             "TICKER": ["AAPL"],
+            "FIGI": ["FIGI_AAPL"],
             "DATE": ["2024-01-01"],
             "HOLDER": ["Fund A"],
             "SHARES": [1000],
@@ -104,7 +105,7 @@ def test_holders_skip_write_when_rows_duplicate_minus_date():
         return_value=inst_existing
     )
     institutional.azure_data_source.write_sql_table = MagicMock(return_value=None)
-    institutional.run(write_to_azure=True)
+    institutional.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
     institutional.azure_data_source.write_sql_table.assert_not_called()
 
     major = MajorHolders(tickers=["AAPL"])
@@ -119,6 +120,7 @@ def test_holders_skip_write_when_rows_duplicate_minus_date():
     major_existing = pd.DataFrame(
         {
             "TICKER": ["AAPL"],
+            "FIGI": ["FIGI_AAPL"],
             "DATE": ["2024-01-01"],
             "METRIC": ["insidersPercentHeld"],
             "VALUE": [0.2],
@@ -128,5 +130,5 @@ def test_holders_skip_write_when_rows_duplicate_minus_date():
     major.azure_data_source.get_engine = MagicMock(return_value=object())
     major.azure_data_source.read_sql_table = MagicMock(return_value=major_existing)
     major.azure_data_source.write_sql_table = MagicMock(return_value=None)
-    major.run(write_to_azure=True)
+    major.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
     major.azure_data_source.write_sql_table.assert_not_called()

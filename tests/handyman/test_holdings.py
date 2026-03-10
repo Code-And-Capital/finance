@@ -57,8 +57,8 @@ def test_get_index_holdings_builds_all_filters(
     assert "SP500" in filters["index_filter"]
     assert "NASDAQ100" in filters["index_filter"]
     assert '"INDEX"' in filters["index_filter"]
-    assert "AAPL" in filters["ticker_filter"]
-    assert "MSFT" in filters["ticker_filter"]
+    assert "AAPL" in filters["security_filter"]
+    assert "MSFT" in filters["security_filter"]
     assert filters["date_filter"] == "AND DATE >= '2024-01-01'"
     assert pd.api.types.is_datetime64_any_dtype(out["DATE"])
 
@@ -95,10 +95,26 @@ def test_get_index_holdings_without_filters(
 
     assert captured["filters"] == {
         "index_filter": "",
-        "ticker_filter": "",
+        "security_filter": "",
         "date_filter": "",
     }
     assert len(out) == 2
+
+
+def test_get_index_holdings_supports_figi_filter(
+    monkeypatch: pytest.MonkeyPatch, sample_holdings_df: pd.DataFrame
+):
+    captured: dict[str, object] = {}
+
+    def fake_run_sql_template(*, sql_file, filters, configs_path):
+        captured["filters"] = filters
+        return sample_holdings_df
+
+    monkeypatch.setattr("handyman.holdings.run_sql_template", fake_run_sql_template)
+
+    _ = get_index_holdings(figis=["BBG000B9XRY4"])
+    assert "FIGI" in captured["filters"]["security_filter"]
+    assert "BBG000B9XRY4" in captured["filters"]["security_filter"]
 
 
 def test_get_index_holdings_latest_uses_latest_template_and_ignores_start_date(
@@ -194,8 +210,28 @@ def test_get_llm_holdings_no_filters(
 
     out = get_llm_holdings()
 
-    assert captured["filters"] == {"llm_filter": "", "date_filter": ""}
+    assert captured["filters"] == {
+        "llm_filter": "",
+        "security_filter": "",
+        "date_filter": "",
+    }
     assert len(out) == 2
+
+
+def test_get_llm_holdings_supports_figi_filter(
+    monkeypatch: pytest.MonkeyPatch, sample_llm_df: pd.DataFrame
+):
+    captured: dict[str, object] = {}
+
+    def fake_run_sql_template(*, sql_file, filters, configs_path):
+        captured["filters"] = filters
+        return sample_llm_df
+
+    monkeypatch.setattr("handyman.holdings.run_sql_template", fake_run_sql_template)
+
+    _ = get_llm_holdings(figis=["BBG000B9XRY4"])
+    assert "FIGI" in captured["filters"]["security_filter"]
+    assert "BBG000B9XRY4" in captured["filters"]["security_filter"]
 
 
 def test_get_llm_holdings_latest_uses_latest_template_and_ignores_start_date(
@@ -291,7 +327,7 @@ def test_get_institutional_holders_latest_uses_template_and_ignores_start_date(
     )
 
     assert captured["sql_file"] == "institutional_holders_latest.txt"
-    assert "AAPL" in captured["filters"]["ticker_filter"]
+    assert "AAPL" in captured["filters"]["security_filter"]
     assert captured["filters"]["date_filter"] == ""
     assert pd.api.types.is_datetime64_any_dtype(out["DATE"])
     assert pd.api.types.is_datetime64_any_dtype(out["DATE_REPORTED"])
@@ -322,6 +358,6 @@ def test_get_major_holders_latest_uses_template_and_ignores_start_date(
     )
 
     assert captured["sql_file"] == "major_holders_latest.txt"
-    assert "AAPL" in captured["filters"]["ticker_filter"]
+    assert "AAPL" in captured["filters"]["security_filter"]
     assert captured["filters"]["date_filter"] == ""
     assert pd.api.types.is_datetime64_any_dtype(out["DATE"])

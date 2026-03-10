@@ -40,6 +40,27 @@ _ESTIMATE_ATTRS: Dict[str, str] = {
     "growth": "growth_estimates",
 }
 
+_INFO_EPOCH_DATE_COLUMNS: tuple[str, ...] = (
+    "GOVERNANCEEPOCHDATE",
+    "COMPENSATIONASOFEPOCHDATE",
+    "EXDIVIDENDDATE",
+    "DATESHORTINTEREST",
+    "LASTFISCALYEAREND",
+    "NEXTFISCALYEAREND",
+    "MOSTRECENTQUARTER",
+    "LASTSPLITDATE",
+    "LASTDIVIDENDDATE",
+    "POSTMARKETTIME",
+    "REGULARMARKETTIME",
+    "EARNINGSTIMESTAMP",
+    "EARNINGSTIMESTAMPSTART",
+    "EARNINGSTIMESTAMPEND",
+    "EARNINGSCALLTIMESTAMPSTART",
+    "EARNINGSCALLTIMESTAMPEND",
+    "NAMECHANGEDATE",
+    "IPOEXPECTEDDATE",
+)
+
 _YF_LOG_FILTER_CONFIGURED = False
 
 
@@ -263,6 +284,13 @@ class YahooDataClient:
                 missing_mask = text.isin({"nan", "none", ""})
                 df.loc[missing_mask, column] = np.nan
 
+            for column in _INFO_EPOCH_DATE_COLUMNS:
+                if column in df.columns:
+                    values = pd.to_numeric(df[column], errors="coerce")
+                    df[column] = pd.to_datetime(
+                        values, unit="s", errors="coerce"
+                    ).dt.date
+
             df = df.where(pd.notna(df), np.nan)
             return self._normalize(self._add_metadata(df, ticker))
 
@@ -439,6 +467,8 @@ class YahooDataClient:
         obj: yf.Ticker,
         attr: str,
         reset_index: bool = True,
+        drop_index_column: bool = False,
+        index_column_name: str | None = None,
     ) -> Optional[pd.DataFrame]:
         """Fetch a DataFrame-like ticker attribute and standardize output shape."""
 
@@ -455,7 +485,12 @@ class YahooDataClient:
             if df.empty:
                 return None
 
-            out = df.reset_index() if reset_index else df
+            if reset_index:
+                out = df.reset_index(drop=drop_index_column)
+                if index_column_name and not drop_index_column and not out.empty:
+                    out = out.rename(columns={out.columns[0]: index_column_name})
+            else:
+                out = df
             return self._normalize(self._add_metadata(out, ticker))
 
         return self._retry_fetch(inner, ticker)
@@ -542,7 +577,12 @@ class YahooDataClient:
     def get_recommendations(self) -> pd.DataFrame:
         """Return analyst recommendations for all configured tickers."""
         return self._run_parallel(
-            lambda ticker, obj: self._fetch_table_attr(ticker, obj, "recommendations"),
+            lambda ticker, obj: self._fetch_table_attr(
+                ticker,
+                obj,
+                "recommendations",
+                drop_index_column=True,
+            ),
             "Loading Analyst Recommendations",
         )
 
@@ -584,7 +624,13 @@ class YahooDataClient:
     def get_major_holders(self) -> pd.DataFrame:
         """Return major holder summaries for all configured tickers."""
         return self._run_parallel(
-            lambda ticker, obj: self._fetch_table_attr(ticker, obj, "major_holders"),
+            lambda ticker, obj: self._fetch_table_attr(
+                ticker,
+                obj,
+                "major_holders",
+                reset_index=True,
+                index_column_name="HOLDER",
+            ),
             "Loading Major Holders",
         )
 

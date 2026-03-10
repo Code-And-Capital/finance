@@ -240,7 +240,9 @@ class LimitBenchmarkDeviation(WeightAlgo):
                 target_weight = float(candidate.get(name, 0.0))
                 deviation = target_weight - bench_weight
                 if abs(deviation) > effective_limit:
-                    clipped[name] = bench_weight + effective_limit * float(np.sign(deviation))
+                    clipped[name] = bench_weight + effective_limit * float(
+                        np.sign(deviation)
+                    )
                 else:
                     clipped[name] = target_weight
 
@@ -258,7 +260,9 @@ class LimitBenchmarkDeviation(WeightAlgo):
             if all(v <= tolerance for v in violations):
                 return clipped
 
-            max_change = max(abs(clipped[k] - float(candidate.get(k, 0.0))) for k in all_keys)
+            max_change = max(
+                abs(clipped[k] - float(candidate.get(k, 0.0))) for k in all_keys
+            )
             if max_change <= tolerance:
                 return clipped
             return _recurse(clipped)

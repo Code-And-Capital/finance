@@ -147,6 +147,27 @@ class YahooData:
         )
 
     @staticmethod
+    def _normalize_filter_values(values: Iterable[str] | str | None) -> list[str]:
+        """Normalize generic SQL filter values to distinct non-empty strings."""
+        if values is None:
+            return []
+        if isinstance(values, str):
+            raw = [values]
+        else:
+            raw = list(values)
+        return list(
+            dict.fromkeys(str(value).strip() for value in raw if str(value).strip())
+        )
+
+    def _extract_figi_values(self, dataframe: pd.DataFrame) -> list[str]:
+        """Extract normalized FIGI values from a dataframe."""
+        if dataframe.empty or "FIGI" not in dataframe.columns:
+            return []
+        return self._normalize_filter_values(
+            dataframe["FIGI"].dropna().astype(str).tolist()
+        )
+
+    @staticmethod
     def _extract_returned_tickers(dataframe: pd.DataFrame) -> set[str]:
         """Extract returned ticker symbols from a DataFrame pull result."""
         if dataframe.empty or "TICKER" not in dataframe.columns:
@@ -299,6 +320,29 @@ class YahooData:
         return pd.concat(frames, ignore_index=True)
 
     @staticmethod
+    def _attach_figi_from_mapping(
+        dataframe: pd.DataFrame,
+        ticker_to_figi: dict[str, str | None] | None,
+    ) -> pd.DataFrame:
+        """Attach FIGI by TICKER using an external ticker->FIGI mapping."""
+        if dataframe.empty or "TICKER" not in dataframe.columns or not ticker_to_figi:
+            return dataframe
+
+        out = dataframe.copy()
+        out["TICKER"] = out["TICKER"].astype(str).str.strip().str.upper()
+        normalized_map = {
+            str(ticker).strip().upper(): figi
+            for ticker, figi in ticker_to_figi.items()
+            if str(ticker).strip()
+        }
+        mapped_figi = out["TICKER"].map(normalized_map)
+        if "FIGI" in out.columns:
+            out["FIGI"] = out["FIGI"].where(out["FIGI"].notna(), mapped_figi)
+        else:
+            out["FIGI"] = mapped_figi
+        return out
+
+    @staticmethod
     def _to_signature(value: Any) -> str:
         """Convert values to stable string signatures for row-level comparisons."""
         if pd.isna(value):
@@ -396,29 +440,27 @@ class YahooData:
 
         return incoming_df.loc[keep_indices].reset_index(drop=True)
 
-    def _load_existing_rows_for_tickers(
+    def _load_existing_rows_for_figi(
         self,
         *,
         engine,
         table_name: str,
-        tickers: Iterable[str] | str | None = None,
-        ticker_column: str = "TICKER",
+        figis: Iterable[str] | str | None = None,
+        figi_column: str = "FIGI",
         log_context: str | None = None,
     ) -> pd.DataFrame:
-        """Load existing table rows filtered by ticker list for delta comparisons."""
-        ticker_values = self._normalize_ticker_list(
-            self.tickers if tickers is None else tickers
-        )
-        if not ticker_values:
+        """Load existing table rows filtered by FIGI list for delta comparisons."""
+        figi_values = self._normalize_filter_values(figis)
+        if not figi_values:
             return pd.DataFrame()
 
-        ticker_filter = self.sql_client.add_in_filter(
-            self.sql_client.quote_ident(ticker_column),
-            ticker_values,
+        figi_filter = self.sql_client.add_in_filter(
+            self.sql_client.quote_ident(figi_column),
+            figi_values,
         )
         query = self.sql_client.build_select_with_filters_query(
             table_name=table_name,
-            filters_sql=ticker_filter,
+            filters_sql=figi_filter,
         )
         context = log_context or table_name
         try:

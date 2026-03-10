@@ -13,6 +13,7 @@ from utils.logging import log
 from connectors.azure_data_source import default_azure_data_source
 from connectors.selenium_data_source import default_selenium_data_source
 from connectors.xls_data_source import default_xls_data_source
+from pipelines.daily_market_data.openfigi_data import OpenFigiData
 from sql.script_factory import SQLClient
 
 ETF_URLS = {
@@ -82,6 +83,120 @@ class DownloadHoldings:
             "Nyse Mkt Llc",
             "NYSE",
         ]
+
+    def _load_security_master(self, *, configs_path: str | None = None) -> pd.DataFrame:
+        """Load security master rows used for FIGI enrichment."""
+        engine = self.azure_data_source.get_engine(configs_path=configs_path)
+        query = self.sql_client.build_select_all_query(table_name="security_master")
+        security_master = self.azure_data_source.read_sql_table(
+            engine=engine, query=query
+        )
+        log(f"Loaded security_master rows for FIGI enrichment: {len(security_master)}")
+        return security_master
+
+    @staticmethod
+    def _dedupe_security_master_for_holdings(
+        security_master: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Deduplicate security master rows for holdings FIGI merge.
+
+        Priority for duplicate ``(TICKER, NAME)`` rows:
+        1. Prefer rows with ``LOCATION == 'United States'`` (case-insensitive).
+        2. If no U.S. row exists, keep the row with the earliest ``DATE``.
+        """
+        required = {"TICKER", "NAME"}
+        if security_master.empty or not required.issubset(security_master.columns):
+            return security_master.copy()
+
+        out = security_master.copy()
+        out["_TICKER_KEY"] = out["TICKER"].astype(str).str.strip().str.upper()
+        out["_NAME_KEY"] = out["NAME"].astype(str).str.strip()
+        if "LOCATION" in out.columns:
+            out["_IS_US"] = (
+                out["LOCATION"].astype(str).str.strip().str.lower() == "united states"
+            )
+        else:
+            out["_IS_US"] = False
+        if "DATE" in out.columns:
+            out["_DATE_KEY"] = pd.to_datetime(out["DATE"], errors="coerce")
+        else:
+            out["_DATE_KEY"] = pd.NaT
+
+        out = out.sort_values(
+            by=["_TICKER_KEY", "_NAME_KEY", "_IS_US", "_DATE_KEY"],
+            ascending=[True, True, False, True],
+            na_position="last",
+        )
+        out = out.drop_duplicates(subset=["_TICKER_KEY", "_NAME_KEY"], keep="first")
+        return out.drop(columns=["_TICKER_KEY", "_NAME_KEY", "_IS_US", "_DATE_KEY"])
+
+    def _attach_figi(
+        self,
+        holdings_df: pd.DataFrame,
+        *,
+        configs_path: str | None = None,
+        security_master_override: pd.DataFrame | None = None,
+    ) -> pd.DataFrame:
+        """Merge FIGI onto holdings by TICKER+NAME and warn on missing tickers."""
+        if security_master_override is not None:
+            security_master = security_master_override.copy()
+        else:
+            security_master = self._load_security_master(configs_path=configs_path)
+        required = {"TICKER", "NAME", "FIGI"}
+        missing_cols = sorted(required.difference(security_master.columns))
+        if missing_cols:
+            raise ValueError(
+                "security_master is missing required columns for FIGI enrichment: "
+                f"{missing_cols}"
+            )
+
+        security_master = self._dedupe_security_master_for_holdings(security_master)
+
+        sec = security_master[["TICKER", "NAME", "FIGI"]].copy()
+        sec["TICKER"] = sec["TICKER"].astype(str).str.strip().str.upper()
+        sec["NAME"] = sec["NAME"].astype(str).str.strip()
+        sec = sec.dropna(subset=["TICKER", "NAME", "FIGI"])
+        sec = sec[sec["TICKER"] != ""]
+        sec = sec.drop_duplicates(subset=["TICKER", "NAME"], keep="first")
+
+        out = holdings_df.copy()
+        out["TICKER"] = out["TICKER"].astype(str).str.strip().str.upper()
+        out["NAME"] = out["NAME"].astype(str).str.strip()
+
+        missing_tickers = sorted(set(out["TICKER"]) - set(sec["TICKER"]))
+        if missing_tickers:
+            log(
+                "Holdings tickers missing from security_master: "
+                f"{len(missing_tickers)} -> {missing_tickers}",
+                type="warning",
+            )
+
+        out = out.merge(sec, on=["TICKER", "NAME"], how="left")
+        return out
+
+    def _run_openfigi_pipeline(
+        self,
+        holdings_df: pd.DataFrame,
+        *,
+        write_to_azure: bool,
+        configs_path: str | None = None,
+    ) -> pd.DataFrame:
+        """Run OpenFIGI enrichment for holdings universe and return pulled rows."""
+        log("Running OpenFIGI pipeline.")
+        openfigi_universe = (
+            holdings_df[["TICKER", "NAME", "LOCATION"]]
+            .dropna(subset=["TICKER", "NAME", "LOCATION"])
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
+        all_openfigi = OpenFigiData(
+            universe_df=openfigi_universe,
+        ).run(
+            write_to_azure=write_to_azure,
+            configs_path=configs_path,
+        )
+        log(f"OpenFIGI pipeline complete: {len(all_openfigi)} rows")
+        return all_openfigi
 
     def _resolve_file_path(self) -> str:
         """Resolve downloaded holdings file path from fund mapping."""
@@ -191,6 +306,22 @@ class DownloadHoldings:
         try:
             raw = self._load_raw(file_path)
             transformed = self._transform(raw)
+            pulled_openfigi = self._run_openfigi_pipeline(
+                transformed,
+                write_to_azure=write_to_azure,
+                configs_path=configs_path,
+            )
+            security_master = self._load_security_master(configs_path=configs_path)
+            if not pulled_openfigi.empty:
+                security_master = pd.concat(
+                    [security_master, pulled_openfigi], ignore_index=True
+                )
+            security_master = self._dedupe_security_master_for_holdings(security_master)
+            transformed = self._attach_figi(
+                transformed,
+                configs_path=configs_path,
+                security_master_override=security_master,
+            )
             log(f"Transformed holdings for {self.fund_name}: {len(transformed)} rows")
             self._validate_row_count(transformed)
             log(

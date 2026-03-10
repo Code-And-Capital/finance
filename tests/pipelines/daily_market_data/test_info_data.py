@@ -20,6 +20,7 @@ def test_run_batches_and_aggregates_info_and_officers():
             "TICKER": ["AAPL", "MSFT"],
             "DATE": ["2024-01-02", "2024-01-02"],
             "MOSTRECENTQUARTER": ["2024-03-31", "2024-03-31"],
+            "GOVERNANCEEPOCHDATE": ["2024-01-01", "2024-01-01"],
             "MISCLISTFIELD": [[1, 2, 3], "ok"],
         }
     )
@@ -41,6 +42,7 @@ def test_run_batches_and_aggregates_info_and_officers():
     assert set(info_df["TICKER"]) == {"AAPL", "MSFT"}
     assert set(officers_df["TICKER"]) == {"AAPL", "MSFT"}
     assert pd.api.types.is_datetime64_any_dtype(info_df["MOSTRECENTQUARTER"])
+    assert pd.api.types.is_datetime64_any_dtype(info_df["GOVERNANCEEPOCHDATE"])
     assert pd.isna(info_df.loc[info_df["TICKER"] == "AAPL", "MISCLISTFIELD"]).iloc[0]
 
 
@@ -141,14 +143,16 @@ def test_run_write_to_azure_writes_company_info_and_officers():
     pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
     pipeline.azure_data_source.read_sql_table = MagicMock(
         side_effect=[
-            pd.DataFrame(columns=["TICKER", "DATE", "NAME"]),
+            pd.DataFrame(columns=["TICKER", "FIGI", "DATE", "NAME"]),
             pd.DataFrame(columns=["ADDRESS1", "CITY", "COUNTRY", "LAT", "LON"]),
         ]
     )
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
     info_df, officers_df = pipeline.run(
-        write_to_azure=True, configs_path="config/configs.json"
+        write_to_azure=True,
+        configs_path="config/configs.json",
+        ticker_to_figi={"AAPL": "FIGI_AAPL"},
     )
 
     pipeline.azure_data_source.get_engine.assert_called_once_with(
@@ -185,7 +189,7 @@ def test_run_write_to_azure_geocodes_and_writes_missing_addresses():
     pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
     pipeline.azure_data_source.read_sql_table = MagicMock(
         side_effect=[
-            pd.DataFrame(columns=["TICKER", "DATE", "NAME"]),
+            pd.DataFrame(columns=["TICKER", "FIGI", "DATE", "NAME"]),
             pd.DataFrame(columns=["ADDRESS1", "CITY", "COUNTRY", "LAT", "LON"]),
         ]
     )
@@ -204,7 +208,7 @@ def test_run_write_to_azure_geocodes_and_writes_missing_addresses():
         "pipelines.daily_market_data.info_data.geo.geocode_dataframe",
         return_value=geocoded,
     ):
-        pipeline.run(write_to_azure=True)
+        pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     assert pipeline.azure_data_source.write_sql_table.call_count == 3
     third = pipeline.azure_data_source.write_sql_table.call_args_list[2].kwargs
@@ -232,7 +236,7 @@ def test_run_write_to_azure_skips_geocode_when_no_missing_address():
     pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
     pipeline.azure_data_source.read_sql_table = MagicMock(
         side_effect=[
-            pd.DataFrame(columns=["TICKER", "DATE", "NAME"]),
+            pd.DataFrame(columns=["TICKER", "FIGI", "DATE", "NAME"]),
             pd.DataFrame(
                 {
                     "ADDRESS1": ["1 Apple Park Way"],
@@ -249,7 +253,7 @@ def test_run_write_to_azure_skips_geocode_when_no_missing_address():
     with patch(
         "pipelines.daily_market_data.info_data.geo.geocode_dataframe"
     ) as mock_geocode:
-        pipeline.run(write_to_azure=True)
+        pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     mock_geocode.assert_not_called()
     assert pipeline.azure_data_source.write_sql_table.call_count == 2
@@ -268,6 +272,7 @@ def test_run_write_to_azure_skips_officer_write_when_rows_already_exist_minus_da
     existing_officers = pd.DataFrame(
         {
             "TICKER": ["AAPL"],
+            "FIGI": ["FIGI_AAPL"],
             "DATE": ["2024-01-01"],
             "NAME": ["Tim Cook"],
             "TITLE": ["CEO"],
@@ -286,7 +291,7 @@ def test_run_write_to_azure_skips_officer_write_when_rows_already_exist_minus_da
     )
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     assert pipeline.azure_data_source.write_sql_table.call_count == 1
     only_call = pipeline.azure_data_source.write_sql_table.call_args_list[0].kwargs

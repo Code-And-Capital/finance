@@ -55,9 +55,11 @@ class _BaseHolders(YahooData):
         date_columns: list[str],
     ) -> None:
         """Write table rows after dedupe-minus-date checks."""
-        existing_df = self._load_existing_rows_for_tickers(
+        figi_values = self._extract_figi_values(dataframe)
+        existing_df = self._load_existing_rows_for_figi(
             engine=engine,
             table_name=table_name,
+            figis=figi_values,
             log_context=table_name,
         )
         rows_to_write = self._filter_new_or_changed_rows(
@@ -102,6 +104,7 @@ class InstitutionalHolders(_BaseHolders):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Run institutional holders workflow and return pulled rows."""
         log(
@@ -115,6 +118,9 @@ class InstitutionalHolders(_BaseHolders):
         if "VALUE" in institutional_holders.columns:
             institutional_holders = institutional_holders.drop(columns=["VALUE"])
             log("Dropped VALUE column from institutional holders payload")
+        institutional_holders = self._attach_figi_from_mapping(
+            institutional_holders, ticker_to_figi
+        )
         log(f"Pulled institutional holders rows: {len(institutional_holders)}")
 
         if write_to_azure:
@@ -137,6 +143,7 @@ class MajorHolders(_BaseHolders):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Run major holders workflow and return pulled rows."""
         log(
@@ -147,6 +154,7 @@ class MajorHolders(_BaseHolders):
             client_method="get_major_holders",
             date_columns=["DATE"],
         )
+        major_holders = self._attach_figi_from_mapping(major_holders, ticker_to_figi)
         log(f"Pulled major holders rows: {len(major_holders)}")
 
         if write_to_azure:

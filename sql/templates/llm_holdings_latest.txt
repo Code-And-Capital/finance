@@ -5,6 +5,7 @@ WITH latest_dates AS (
     FROM [dbo].[llm]
     WHERE 1=1
     {llm_filter}
+    {security_filter}
     {date_filter}
     GROUP BY [strategy]
 )
@@ -13,3 +14,5 @@ FROM [dbo].[llm] AS l
 INNER JOIN latest_dates AS ld
     ON l.[strategy] = ld.[strategy]
     AND l.[DATE] = ld.max_date
+WHERE 1=1
+{security_filter}

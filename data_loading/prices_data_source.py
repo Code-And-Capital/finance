@@ -19,26 +19,20 @@ class PricesDataSource(BaseDataSource):
     def __init__(
         self,
         *,
-        tickers: Sequence[str] | str,
+        figis: Sequence[str] | str,
         start_date: str | None = None,
         end_date: str | None = None,
         configs_path: str | None = None,
     ) -> None:
         super().__init__()
-        self.tickers = tickers
+        self.figis = figis
         self.start_date = start_date
         self.end_date = end_date
         self.configs_path = configs_path
         self.pull_start_date: str | None = None
 
-    def _requested_tickers(self) -> list[str]:
-        """Return normalized requested ticker list."""
-        raw = [self.tickers] if isinstance(self.tickers, str) else list(self.tickers)
-        normalized = [str(t).strip().upper() for t in raw if str(t).strip()]
-        return [t for t in normalized if t not in {"NAN", "NONE"}]
-
     def load(self) -> pd.DataFrame:
-        """Load prices in long format (DATE, TICKER, ADJ_CLOSE)."""
+        """Load prices in long format (DATE, FIGI, ADJ_CLOSE)."""
         effective_start_date = self.start_date
         if self.start_date is not None:
             try:
@@ -52,13 +46,13 @@ class PricesDataSource(BaseDataSource):
         self.pull_start_date = effective_start_date
         log(
             "PricesDataSource: loading prices for "
-            f"tickers_count={len(self.tickers) if isinstance(self.tickers, (list, tuple, set)) else 1} "
+            f"figis_count={len(self.figis) if isinstance(self.figis, (list, tuple, set)) else 1} "
             f"start_date={self.start_date} pull_start_date={self.pull_start_date} "
             f"end_date={self.end_date}",
             type="info",
         )
         return get_prices(
-            tickers=self.tickers,
+            figis=self.figis,
             start_date=self.pull_start_date,
             end_date=self.end_date,
             configs_path=self.configs_path,
@@ -67,17 +61,17 @@ class PricesDataSource(BaseDataSource):
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         """Apply cleaning and normalization on the original long dataframe."""
         log(f"PricesDataSource: transforming {len(data)} rows", type="info")
-        requested = self._requested_tickers()
+        requested = self._requested_figis()
         if data.empty:
             log("PricesDataSource: received empty prices dataframe", type="warning")
             if requested:
                 log(
-                    "PricesDataSource: no data returned for requested tickers: "
+                    "PricesDataSource: no data returned for requested FIGIs: "
                     + ", ".join(requested),
                     type="warning",
                 )
             return data.copy()
-        required_cols = {"DATE", "TICKER", "ADJ_CLOSE"}
+        required_cols = {"DATE", "FIGI", "ADJ_CLOSE"}
         missing_cols = required_cols.difference(data.columns)
         if missing_cols:
             raise ValueError(
@@ -85,19 +79,19 @@ class PricesDataSource(BaseDataSource):
             )
         out = data.copy()
         out["DATE"] = pd.to_datetime(out["DATE"])
-        out["TICKER"] = out["TICKER"].astype(str).str.upper()
-        out = out.sort_values(["DATE", "TICKER"]).reset_index(drop=True)
-        found = set(out["TICKER"].dropna().astype(str).str.upper().unique())
+        out["FIGI"] = out["FIGI"].astype(str).str.strip().str.upper()
+        out = out.sort_values(["DATE", "FIGI"]).reset_index(drop=True)
+        found = set(out["FIGI"].dropna().astype(str).str.strip().str.upper().unique())
         missing = sorted(set(requested) - found)
         if missing:
             log(
-                "PricesDataSource: missing data for requested tickers: "
+                "PricesDataSource: missing data for requested FIGIs: "
                 + ", ".join(missing),
                 type="warning",
             )
         log(
             "PricesDataSource: transformed "
-            f"rows={len(out)} unique_tickers={out['TICKER'].nunique()}",
+            f"rows={len(out)} unique_figis={out['FIGI'].nunique()}",
             type="info",
         )
         return out
@@ -120,14 +114,14 @@ class PricesDataSource(BaseDataSource):
 
         wide = data.pivot_table(
             index="DATE",
-            columns="TICKER",
+            columns="FIGI",
             values="ADJ_CLOSE",
             aggfunc="last",
         )
         wide.index = pd.to_datetime(wide.index)
         wide = wide.sort_index()
         wide = self._fill_internal_and_single_trailing_gaps(wide)
-        # Rebase each ticker to 100 for full history.
+        # Rebase each FIGI to 100 for full history.
         rebased_full = (wide.pct_change(fill_method=None).fillna(0) + 1).cumprod() * 100
         # Keep values only where wide data is actually present after controlled fills.
         active_mask_full = wide.notna()
@@ -156,7 +150,7 @@ class PricesDataSource(BaseDataSource):
 
     @staticmethod
     def _fill_internal_and_single_trailing_gaps(wide: pd.DataFrame) -> pd.DataFrame:
-        """Forward-fill internal gaps and at most one trailing gap per ticker.
+        """Forward-fill internal gaps and at most one trailing gap per FIGI.
 
         Rules per column:
         - Internal gaps are forward-filled.
@@ -188,7 +182,7 @@ class PricesDataSource(BaseDataSource):
     def plot_prices(
         self,
         *,
-        tickers: Sequence[str] | None = None,
+        figis: Sequence[str] | None = None,
         use_full_history: bool = False,
         title: str = "Prices",
         height: int = 500,
@@ -197,8 +191,8 @@ class PricesDataSource(BaseDataSource):
 
         Parameters
         ----------
-        tickers
-            Optional ticker subset to plot. If None, all available columns are used.
+        figis
+            Optional FIGI subset to plot. If None, all available columns are used.
         use_full_history
             If True, plot ``prices_wide_full_history``; else plot ``prices_wide``.
         title
@@ -214,19 +208,19 @@ class PricesDataSource(BaseDataSource):
             raise ValueError(f"{key} is empty; nothing to plot.")
 
         requested = None
-        if tickers is not None:
-            requested = [str(t).strip().upper() for t in tickers if str(t).strip()]
-            missing = [t for t in requested if t not in prices.columns]
+        if figis is not None:
+            requested = [str(f).strip().upper() for f in figis if str(f).strip()]
+            missing = [f for f in requested if f not in prices.columns]
             if missing:
                 log(
-                    "PricesDataSource: requested plot tickers not found: "
+                    "PricesDataSource: requested plot FIGIs not found: "
                     + ", ".join(missing),
                     type="warning",
                 )
-            requested = [t for t in requested if t in prices.columns]
+            requested = [f for f in requested if f in prices.columns]
             if not requested:
                 raise ValueError(
-                    "None of the requested tickers are present in prices_wide."
+                    "None of the requested FIGIs are present in prices_wide."
                 )
 
         y_cols = requested if requested is not None else list(prices.columns)

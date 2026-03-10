@@ -17,33 +17,27 @@ class CompanyInfoDataSource(BaseDataSource):
     def __init__(
         self,
         *,
-        tickers: Sequence[str] | str,
+        figis: Sequence[str] | str,
         start_date: str | None = None,
         end_date: str | None = None,
         configs_path: str | None = None,
     ) -> None:
         super().__init__()
-        self.tickers = tickers
+        self.figis = figis
         self.start_date = start_date
         self.end_date = end_date
         self.configs_path = configs_path
-
-    def _requested_tickers(self) -> list[str]:
-        """Return normalized requested ticker list."""
-        raw = [self.tickers] if isinstance(self.tickers, str) else list(self.tickers)
-        normalized = [str(t).strip().upper() for t in raw if str(t).strip()]
-        return [t for t in normalized if t not in {"NAN", "NONE"}]
 
     def load(self) -> pd.DataFrame:
         """Load company info data."""
         log(
             "CompanyInfoDataSource: loading info for "
-            f"tickers_count={len(self.tickers) if isinstance(self.tickers, (list, tuple, set)) else 1} "
+            f"figis_count={len(self.figis) if isinstance(self.figis, (list, tuple, set)) else 1} "
             f"start_date={self.start_date} end_date={self.end_date}",
             type="info",
         )
         info_df = get_company_info(
-            tickers=self.tickers,
+            figis=self.figis,
             start_date=self.start_date,
             end_date=self.end_date,
             configs_path=self.configs_path,
@@ -55,27 +49,28 @@ class CompanyInfoDataSource(BaseDataSource):
         return info_df
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Standardize ticker/date fields and deduplicate rows."""
+        """Standardize FIGI/date fields and deduplicate rows."""
         log(f"CompanyInfoDataSource: transforming info rows={len(data)}", type="info")
-        requested = self._requested_tickers()
+        requested = self._requested_figis()
         out = data.copy()
         if "DATE" in out.columns:
             out["DATE"] = pd.to_datetime(out["DATE"])
-        if "TICKER" in out.columns:
-            out["TICKER"] = out["TICKER"].astype(str).str.upper()
+        if "FIGI" in out.columns:
+            out["FIGI"] = out["FIGI"].astype(str).str.strip().str.upper()
         out = out.drop_duplicates().reset_index(drop=True)
         if requested:
             found = set(
-                out.get("TICKER", pd.Series(dtype=str))
+                out.get("FIGI", pd.Series(dtype=str))
                 .dropna()
                 .astype(str)
+                .str.strip()
                 .str.upper()
                 .unique()
             )
             missing = sorted(set(requested) - found)
             if missing:
                 log(
-                    "CompanyInfoDataSource: missing data for requested tickers: "
+                    "CompanyInfoDataSource: missing data for requested FIGIs: "
                     + ", ".join(missing),
                     type="warning",
                 )
@@ -97,10 +92,10 @@ class CompanyInfoDataSource(BaseDataSource):
             "company_info": self.transformed_data.copy()
         }
         data = self.transformed_data
-        if {"DATE", "TICKER", "SECTOR"}.issubset(data.columns):
+        if {"DATE", "FIGI", "SECTOR"}.issubset(data.columns):
             sector_wide = data.pivot_table(
                 index="DATE",
-                columns="TICKER",
+                columns="FIGI",
                 values="SECTOR",
                 aggfunc="last",
             ).sort_index()
@@ -109,10 +104,22 @@ class CompanyInfoDataSource(BaseDataSource):
                 sector_wide = sector_wide.reindex(target_dates)
             sector_wide = sector_wide.ffill().bfill()
             outputs["sector_wide"] = sector_wide
-        if {"DATE", "TICKER", "MARKETCAP"}.issubset(data.columns):
+        if {"DATE", "FIGI", "TICKER"}.issubset(data.columns):
+            ticker_wide = data.pivot_table(
+                index="DATE",
+                columns="FIGI",
+                values="TICKER",
+                aggfunc="last",
+            ).sort_index()
+            if dates is not None:
+                target_dates = pd.DatetimeIndex(pd.to_datetime(pd.Index(dates)))
+                ticker_wide = ticker_wide.reindex(target_dates)
+            ticker_wide = ticker_wide.ffill().bfill()
+            outputs["ticker_wide"] = ticker_wide
+        if {"DATE", "FIGI", "MARKETCAP"}.issubset(data.columns):
             marketcap_wide = data.pivot_table(
                 index="DATE",
-                columns="TICKER",
+                columns="FIGI",
                 values="MARKETCAP",
                 aggfunc="last",
             ).sort_index()

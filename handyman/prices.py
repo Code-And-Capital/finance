@@ -6,14 +6,14 @@ from typing import Optional, Sequence
 
 import pandas as pd
 
-from handyman.base import DateLike, run_sql_template
+from handyman.base import DateLike, build_security_filter_sql, run_sql_template
 from sql.script_factory import default_sql_client
 from utils.dataframe_utils import ensure_datetime_column
-from utils.list_utils import normalize_string_list
 
 
 def get_prices(
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     end_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
@@ -24,6 +24,8 @@ def get_prices(
     ----------
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to ``DATE``.
     end_date
@@ -42,14 +44,16 @@ def get_prices(
     ValueError
         If required columns ``DATE``, ``TICKER``, and ``ADJ_CLOSE`` are missing.
     """
-    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
+    security_filter = build_security_filter_sql(
+        sql_client=default_sql_client,
+        tickers=tickers,
+        figis=figis,
+    )
 
     raw = run_sql_template(
         sql_file="prices.txt",
         filters={
-            "ticker_filter": default_sql_client.add_in_filter(
-                "TICKER", normalized_tickers
-            ),
+            "security_filter": security_filter,
             "date_filter": "\n".join(
                 filter_text
                 for filter_text in [
@@ -76,6 +80,7 @@ def get_prices(
 def get_analyst_price_targets(
     *,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -86,6 +91,8 @@ def get_analyst_price_targets(
     ----------
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to ``DATE``.
     configs_path
@@ -99,7 +106,11 @@ def get_analyst_price_targets(
     pandas.DataFrame
         Analyst price target rows with ``DATE`` coerced to datetime.
     """
-    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
+    security_filter = build_security_filter_sql(
+        sql_client=default_sql_client,
+        tickers=tickers,
+        figis=figis,
+    )
     if not get_latest:
         df = run_sql_template(
             sql_file="base_with_filters.txt",
@@ -109,7 +120,7 @@ def get_analyst_price_targets(
                 "filters_sql": "\n".join(
                     filter_text
                     for filter_text in [
-                        default_sql_client.add_in_filter("TICKER", normalized_tickers),
+                        security_filter,
                         default_sql_client.add_date_filter("DATE", start_date),
                     ]
                     if filter_text
@@ -121,9 +132,7 @@ def get_analyst_price_targets(
         df = run_sql_template(
             sql_file="analyst_price_targets_latest.txt",
             filters={
-                "ticker_filter": default_sql_client.add_in_filter(
-                    "TICKER", normalized_tickers
-                ),
+                "security_filter": security_filter,
                 "date_filter": "",
             },
             configs_path=configs_path,

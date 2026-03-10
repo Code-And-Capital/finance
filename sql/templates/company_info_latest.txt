@@ -7,7 +7,7 @@ WITH ranked_info AS (
         ) AS _ROW_NUM
     FROM [dbo].[company_info]
     WHERE 1=1
-    {ticker_filter}
+    {security_filter}
     {date_filter}
 )
 SELECT *

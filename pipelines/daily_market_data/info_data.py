@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
+import connectors.yahoo_data_source as yahoo_data_source
 import utils.dataframe_utils as dataframe_utils
 from utils import geo
 from pipelines.daily_market_data.yahoo_data import YahooData
@@ -17,7 +18,7 @@ from utils.logging import log
 class InfoData(YahooData):
     """Pull company info and officer datasets from one Yahoo client instance."""
 
-    _INFO_DATE_COLUMNS = [
+    _BASE_INFO_DATE_COLUMNS = [
         "DATE",
         "LASTFISCALYEAREND",
         "NEXTFISCALYEAREND",
@@ -26,6 +27,11 @@ class InfoData(YahooData):
         "LASTDIVIDENDDATE",
         "DIVIDENDDATE",
     ]
+    _INFO_DATE_COLUMNS = list(
+        dict.fromkeys(
+            _BASE_INFO_DATE_COLUMNS + list(yahoo_data_source._INFO_EPOCH_DATE_COLUMNS)
+        )
+    )
 
     _OFFICER_DATE_COLUMNS = ["DATE"]
     _RESET_WAIT_SECONDS = 120
@@ -189,9 +195,12 @@ class InfoData(YahooData):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Return both datasets and optionally write them to Azure SQL."""
         info_df, officers_df = self._pull_info_and_officers()
+        info_df = self._attach_figi_from_mapping(info_df, ticker_to_figi)
+        officers_df = self._attach_figi_from_mapping(officers_df, ticker_to_figi)
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
             log(f"Writing company info rows to Azure: {len(info_df)}")
@@ -201,9 +210,11 @@ class InfoData(YahooData):
                 df=info_df,
                 overwrite=False,
             )
-            existing_officers = self._load_existing_rows_for_tickers(
+            officer_figis = self._extract_figi_values(officers_df)
+            existing_officers = self._load_existing_rows_for_figi(
                 engine=engine,
                 table_name="officers",
+                figis=officer_figis,
                 log_context="officers",
             )
             officers_to_write = self._filter_new_or_changed_rows(

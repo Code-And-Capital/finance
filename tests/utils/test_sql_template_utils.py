@@ -52,11 +52,11 @@ def test_template_load_render_and_query_state():
 
     query = client.render_sql_query(
         query_path=client.resolve_sql_path("prices.txt"),
-        filters={"ticker_filter": "", "date_filter": ""},
+        filters={"security_filter": "", "date_filter": ""},
     )
 
     assert "FROM [dbo].[prices]" in query
-    assert "{ticker_filter}" not in query
+    assert "{security_filter}" not in query
     assert "{date_filter}" not in query
     assert client.query() == query
 

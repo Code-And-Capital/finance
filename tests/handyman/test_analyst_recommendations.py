@@ -48,9 +48,27 @@ def test_get_analyst_recommendations_latest_uses_template_and_ignores_start_date
     )
 
     assert captured["sql_file"] == "analyst_recommendations_latest.txt"
-    assert "AAPL" in captured["filters"]["ticker_filter"]
+    assert "AAPL" in captured["filters"]["security_filter"]
     assert captured["filters"]["date_filter"] == ""
     assert pd.api.types.is_datetime64_any_dtype(out["DATE"])
+
+
+def test_get_analyst_recommendations_latest_supports_figi_filter(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    def fake_run_sql_template(*, sql_file, filters, configs_path):
+        captured["filters"] = filters
+        return pd.DataFrame({"TICKER": ["AAPL"], "DATE": ["2026-03-01"]})
+
+    monkeypatch.setattr(
+        "handyman.analyst_recommendations.run_sql_template", fake_run_sql_template
+    )
+
+    _ = get_analyst_recommendations(figis=["BBG000B9XRY4"], get_latest=True)
+    assert "FIGI" in captured["filters"]["security_filter"]
+    assert "BBG000B9XRY4" in captured["filters"]["security_filter"]
 
 
 def test_get_analyst_upgrades_downgrades_reads_table_and_converts_dates(
@@ -103,7 +121,7 @@ def test_get_analyst_upgrades_downgrades_latest_uses_template_and_ignores_start_
     )
 
     assert captured["sql_file"] == "analyst_upgrades_downgrades_latest.txt"
-    assert "AAPL" in captured["filters"]["ticker_filter"]
+    assert "AAPL" in captured["filters"]["security_filter"]
     assert captured["filters"]["date_filter"] == ""
     assert pd.api.types.is_datetime64_any_dtype(out["DATE"])
     assert pd.api.types.is_datetime64_any_dtype(out["GRADEDATE"])

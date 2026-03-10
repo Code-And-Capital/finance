@@ -33,68 +33,105 @@ from handyman.holdings import get_index_holdings
 from handyman.holdings import get_llm_holdings
 from utils.logging import configure_file_logging, log
 
-DEFAULT_INDICES = [
-    "^GSPC",
-    "^NDX",
-    "^DJI",
-    "^RUT",
-    "^MID",
-    "^RUI",
-    "VEA",
-    "^FTSE",
-    "^GDAXI",
-    "^N225",
-    "^FCHI",
-    "^STOXX50E",
-    "EEM",
-    "VWO",
-    "^HSI",
-    "000001.SS",
-    "^BSESN",
-    "^BVSP",
-    "^TNX",
-    "^IRX",
-    "^TYX",
-    "TLT",
-    "IEF",
-    "LQD",
-    "HYG",
-    "BND",
-    "^VIX",
-    "^VVIX",
-    "GC=F",
-    "SI=F",
-    "CL=F",
-    "HG=F",
-    "NG=F",
-    "DBC",
-    "DX-Y.NYB",
-    "EURUSD=X",
-    "JPY=X",
-    "GBPUSD=X",
-    "CNY=X",
-    "VNQ",
-    "IYR",
-    "MTUM",
-    "VLUE",
-    "QUAL",
-    "SIZE",
-    "USMV",
-    "BTC-USD",
-    "ETH-USD",
-]
+DEFAULT_INDICES: dict[str, str] = {
+    "^GSPC": "BBG000000001",
+    "^NDX": "BBG000000002",
+    "^DJI": "BBG000000003",
+    "^RUT": "BBG000000004",
+    "^MID": "BBG000000005",
+    "^RUI": "BBG000000006",
+    "VEA": "BBG000000007",
+    "^FTSE": "BBG000000008",
+    "^GDAXI": "BBG000000009",
+    "^N225": "BBG000000010",
+    "^FCHI": "BBG000000011",
+    "^STOXX50E": "BBG000000012",
+    "EEM": "BBG000000013",
+    "VWO": "BBG000000014",
+    "^HSI": "BBG000000015",
+    "000001.SS": "BBG000000016",
+    "^BSESN": "BBG000000017",
+    "^BVSP": "BBG000000018",
+    "^TNX": "BBG000000019",
+    "^IRX": "BBG000000020",
+    "^TYX": "BBG000000021",
+    "TLT": "BBG000000022",
+    "IEF": "BBG000000023",
+    "LQD": "BBG000000024",
+    "HYG": "BBG000000025",
+    "BND": "BBG000000026",
+    "^VIX": "BBG000000027",
+    "^VVIX": "BBG000000028",
+    "GC=F": "BBG000000029",
+    "SI=F": "BBG000000030",
+    "CL=F": "BBG000000031",
+    "HG=F": "BBG000000032",
+    "NG=F": "BBG000000033",
+    "DBC": "BBG000000034",
+    "DX-Y.NYB": "BBG000000035",
+    "EURUSD=X": "BBG000000036",
+    "JPY=X": "BBG000000037",
+    "GBPUSD=X": "BBG000000038",
+    "CNY=X": "BBG000000039",
+    "VNQ": "BBG000000040",
+    "IYR": "BBG000000041",
+    "MTUM": "BBG000000042",
+    "VLUE": "BBG000000043",
+    "QUAL": "BBG000000044",
+    "SIZE": "BBG000000045",
+    "USMV": "BBG000000046",
+    "BTC-USD": "BBG000000047",
+    "ETH-USD": "BBG000000048",
+}
+
+
+def _build_ticker_to_figi_map(df_holdings: pd.DataFrame) -> dict[str, str | None]:
+    """Build ticker->FIGI mapping from holdings output."""
+    if "TICKER" not in df_holdings.columns:
+        return {}
+
+    working = df_holdings.copy()
+    working["TICKER"] = working["TICKER"].astype(str).str.strip().str.upper()
+    if "FIGI" not in working.columns:
+        working["FIGI"] = None
+
+    mapping_df = (
+        working[["TICKER", "FIGI"]]
+        .dropna(subset=["TICKER"])
+        .drop_duplicates(subset=["TICKER"], keep="first")
+        .reset_index(drop=True)
+    )
+    return dict(zip(mapping_df["TICKER"], mapping_df["FIGI"]))
 
 
 def run_daily_market_data(
     *,
     write_to_db: bool = False,
     configs_path: str | None = None,
-    indices: list[str] | None = None,
+    indices: dict[str, str] | None = None,
     include_options: bool = False,
     use_latest_holdings_snapshot: bool = False,
 ) -> dict[str, object]:
     """Run the full daily market data workflow and return produced datasets."""
-    selected_indices = indices if indices is not None else DEFAULT_INDICES
+    selected_indices = (
+        {
+            str(ticker).strip().upper(): str(figi).strip()
+            for ticker, figi in indices.items()
+        }
+        if indices is not None
+        else {
+            str(ticker).strip().upper(): str(figi).strip()
+            for ticker, figi in DEFAULT_INDICES.items()
+        }
+    )
+    missing_index_figi = [
+        ticker for ticker, figi in selected_indices.items() if not ticker or not figi
+    ]
+    if missing_index_figi:
+        raise ValueError(
+            "indices must be provided as ticker->FIGI mapping with non-empty FIGI "
+            f"for every ticker. Missing FIGI for: {missing_index_figi}"
+        )
     log(
         "Starting daily market data pipeline: "
         f"{len(ETF_URLS)} funds, {len(selected_indices)} index tickers, "
@@ -130,14 +167,23 @@ def run_daily_market_data(
             for fund, url in ETF_URLS.items()
         ]
         df_holdings = pd.concat(holdings_frames, ignore_index=True)
-    holdings_tickers = df_holdings["TICKER"].dropna().astype(str).unique()
+    holdings_ticker_to_figi = _build_ticker_to_figi_map(df_holdings)
+    holdings_tickers = list(holdings_ticker_to_figi.keys())
+    mapped_holdings_count = sum(
+        pd.notna(value) for value in holdings_ticker_to_figi.values()
+    )
+    log(
+        f"Built holdings ticker->FIGI map: {len(holdings_ticker_to_figi)} tickers "
+        f"({mapped_holdings_count} with FIGI)"
+    )
     log(f"Holdings pipeline complete: {len(df_holdings)} rows")
 
     log("Running index pricing pipeline.")
-    index_prices = PricingData(tickers=selected_indices).run(
+    index_prices = PricingData(tickers=list(selected_indices.keys())).run(
         write_to_azure=write_to_db,
         use_start_date_mapping=True,
         configs_path=configs_path,
+        ticker_to_figi=selected_indices,
     )
     log(f"Index pricing pipeline complete: {len(index_prices)} rows")
 
@@ -147,6 +193,7 @@ def run_daily_market_data(
         use_start_date_mapping=True,
         adjust_for_corporate_actions=True,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     log(f"Holdings pricing pipeline complete: {len(all_prices)} rows")
 
@@ -154,6 +201,7 @@ def run_daily_market_data(
     all_analyst_price_targets = AnalystPriceTargetsData(tickers=holdings_tickers).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     log(
         f"Analyst price targets pipeline complete: {len(all_analyst_price_targets)} rows"
@@ -163,6 +211,7 @@ def run_daily_market_data(
     all_info, all_officers = InfoData(tickers=holdings_tickers).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     log(
         f"Info pipeline complete: info={len(all_info)} rows, officers={len(all_officers)} rows"
@@ -173,6 +222,7 @@ def run_daily_market_data(
         all_options = OptionsData(tickers=holdings_tickers).run(
             write_to_azure=write_to_db,
             configs_path=configs_path,
+            ticker_to_figi=holdings_ticker_to_figi,
         )
         log(f"Options pipeline complete: {len(all_options)} rows")
     else:
@@ -185,12 +235,14 @@ def run_daily_market_data(
     ).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     all_analyst_upgrades_downgrades = AnalystUpgradesDowngradesData(
         tickers=holdings_tickers
     ).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     log(
         "Analyst recommendations pipeline complete: "
@@ -199,14 +251,15 @@ def run_daily_market_data(
     )
 
     log("Running holders pipeline.")
-    holder_tickers = holdings_tickers
-    all_institutional_holders = InstitutionalHolders(tickers=holder_tickers).run(
+    all_institutional_holders = InstitutionalHolders(tickers=holdings_tickers).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
-    all_major_holders = MajorHolders(tickers=holder_tickers).run(
+    all_major_holders = MajorHolders(tickers=holdings_tickers).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     log(
         "Holders pipeline complete: "
@@ -218,6 +271,7 @@ def run_daily_market_data(
     all_insider_transactions = InsiderTransactionsData(tickers=holdings_tickers).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     log(f"Insider transactions pipeline complete: {len(all_insider_transactions)} rows")
 
@@ -227,6 +281,7 @@ def run_daily_market_data(
     ).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
 
     log("Running EPS revisions pipeline.")
@@ -235,6 +290,7 @@ def run_daily_market_data(
     ).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     log(f"EPS revisions pipeline complete: {len(all_eps_revisions)} rows")
 
@@ -244,6 +300,7 @@ def run_daily_market_data(
     ).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=holdings_ticker_to_figi,
     )
     all_eps_estimates = estimates_data["eps"]
     all_revenue_estimates = estimates_data["revenue"]
@@ -259,7 +316,7 @@ def run_daily_market_data(
     output: dict[str, object] = {
         "tickers_run": {
             "holdings_tickers": list(pd.Index(holdings_tickers).astype(str)),
-            "index_tickers": list(pd.Index(selected_indices).astype(str)),
+            "index_tickers": list(pd.Index(selected_indices.keys()).astype(str)),
         },
         "holdings": df_holdings,
         "index_prices": index_prices,
@@ -285,6 +342,7 @@ def run_daily_market_data(
 def run_market_data_for_tickers(
     *,
     tickers: list[str],
+    ticker_to_figi: dict[str, str | None] | None = None,
     write_to_db: bool = False,
     configs_path: str | None = None,
 ) -> dict[str, object]:
@@ -305,11 +363,26 @@ def run_market_data_for_tickers(
     )
 
     log("Running pricing pipeline.")
+    normalized_ticker_to_figi = None
+    if ticker_to_figi:
+        normalized_ticker_to_figi = {
+            str(ticker)
+            .strip()
+            .upper(): (
+                str(figi).strip().upper()
+                if pd.notna(figi) and str(figi).strip()
+                else None
+            )
+            for ticker, figi in ticker_to_figi.items()
+            if str(ticker).strip()
+        }
+
     all_prices = PricingData(tickers=ticker_list).run(
         write_to_azure=write_to_db,
         use_start_date_mapping=True,
         adjust_for_corporate_actions=True,
         configs_path=configs_path,
+        ticker_to_figi=normalized_ticker_to_figi,
     )
     log(f"Pricing pipeline complete: {len(all_prices)} rows")
 
@@ -317,6 +390,7 @@ def run_market_data_for_tickers(
     all_info, all_officers = InfoData(tickers=ticker_list).run(
         write_to_azure=write_to_db,
         configs_path=configs_path,
+        ticker_to_figi=normalized_ticker_to_figi,
     )
     log(
         f"Info pipeline complete: info={len(all_info)} rows, officers={len(all_officers)} rows"
@@ -335,7 +409,7 @@ if __name__ == "__main__":
     # tail -f "$(ls -t logs/daily_market_data_*.log | head -n 1)"
     write_to_db = True
     configs_path = None
-    include_options = False
+    include_options = True
     use_latest_holdings_snapshot = False
     log_dir = PROJECT_ROOT / "logs"
     log_file = log_dir / f"daily_market_data_{datetime.now():%Y%m%d_%H%M%S}.log"
@@ -355,15 +429,31 @@ if __name__ == "__main__":
         .str.strip()
         .str.upper()
     )
-    latest_llm_holdings = get_llm_holdings(get_latest=True, configs_path=configs_path)
-    llm_tickers = set(
-        pd.Index(latest_llm_holdings.get("TICKER", pd.Series(dtype=str)))
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .str.upper()
+    ran_ticker_to_figi = _build_ticker_to_figi_map(
+        daily_output.get("holdings", pd.DataFrame())
     )
-    missing_tickers = sorted(t for t in llm_tickers if t and t not in ran_tickers)
+    ran_figis = {
+        str(figi).strip().upper()
+        for figi in ran_ticker_to_figi.values()
+        if pd.notna(figi) and str(figi).strip()
+    }
+    latest_llm_holdings = get_llm_holdings(get_latest=True, configs_path=configs_path)
+    llm_ticker_to_figi = _build_ticker_to_figi_map(latest_llm_holdings)
+    llm_ticker_to_figi = {
+        str(ticker)
+        .strip()
+        .upper(): (
+            str(figi).strip().upper() if pd.notna(figi) and str(figi).strip() else None
+        )
+        for ticker, figi in llm_ticker_to_figi.items()
+        if str(ticker).strip()
+    }
+
+    missing_tickers = sorted(
+        ticker
+        for ticker, figi in llm_ticker_to_figi.items()
+        if ticker and figi and figi not in ran_figis and ticker not in ran_tickers
+    )
 
     if missing_tickers:
         log(
@@ -372,6 +462,7 @@ if __name__ == "__main__":
         )
         run_market_data_for_tickers(
             tickers=missing_tickers,
+            ticker_to_figi=llm_ticker_to_figi,
             write_to_db=write_to_db,
             configs_path=configs_path,
         )

@@ -16,8 +16,8 @@ class Runner:
 
     The execution order is:
     1. Holdings
-    2. Prices (for holdings tickers)
-    3. Security/company info (for holdings tickers)
+    2. Prices (for holdings FIGIs)
+    3. Security/company info (for holdings FIGIs)
     """
 
     def __init__(
@@ -25,14 +25,14 @@ class Runner:
         *,
         portfolio: Sequence[str] | str,
         holdings_source: Literal["index", "llm"] = "index",
-        index_tickers: Sequence[str] | str | None = None,
+        index_figis: Sequence[str] | str | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
         configs_path: str | None = None,
     ) -> None:
         self.portfolio = portfolio
         self.holdings_source = holdings_source
-        self.index_tickers = index_tickers
+        self.index_figis = index_figis
         self.start_date = start_date
         self.end_date = end_date
         self.configs_path = configs_path
@@ -44,7 +44,7 @@ class Runner:
         self.price_dates = None
 
     def _run_holdings(self) -> list[str]:
-        """Run holdings source and return the extracted ticker universe."""
+        """Run holdings source and return the extracted FIGI universe."""
         log("Runner: starting holdings step", type="info")
         self.holdings_data_source = HoldingsDataSource(
             source=self.holdings_source,
@@ -54,25 +54,25 @@ class Runner:
             configs_path=self.configs_path,
         )
         self.holdings_data_source.run()
-        tickers = self.holdings_data_source.tickers
-        if not tickers:
-            raise ValueError("No tickers found in holdings data.")
+        figis = self.holdings_data_source.figis
+        if not figis:
+            raise ValueError("No FIGIs found in holdings data.")
         holdings_rows = (
             0
             if self.holdings_data_source.transformed_data is None
             else len(self.holdings_data_source.transformed_data)
         )
         log(
-            f"Runner: holdings step complete rows={holdings_rows} tickers={len(tickers)}",
+            f"Runner: holdings step complete rows={holdings_rows} figis={len(figis)}",
             type="info",
         )
-        return tickers
+        return figis
 
-    def _run_prices(self, tickers: Sequence[str]) -> None:
-        """Run prices source for the provided holdings ticker universe."""
-        log(f"Runner: starting prices step for tickers={len(tickers)}", type="info")
+    def _run_prices(self, figis: Sequence[str]) -> None:
+        """Run prices source for the provided holdings FIGI universe."""
+        log(f"Runner: starting prices step for figis={len(figis)}", type="info")
         self.prices_data_source = PricesDataSource(
-            tickers=tickers,
+            figis=figis,
             start_date=self.start_date,
             end_date=self.end_date,
             configs_path=self.configs_path,
@@ -90,11 +90,11 @@ class Runner:
         )
         log(f"Runner: prices step complete rows={prices_rows}", type="info")
 
-    def _run_security(self, tickers: Sequence[str]) -> None:
-        """Run security/company-info source for the provided ticker universe."""
-        log(f"Runner: starting security step for tickers={len(tickers)}", type="info")
+    def _run_security(self, figis: Sequence[str]) -> None:
+        """Run security/company-info source for the provided FIGI universe."""
+        log(f"Runner: starting security step for figis={len(figis)}", type="info")
         self.security_data_source = CompanyInfoDataSource(
-            tickers=tickers,
+            figis=figis,
             start_date=self.start_date,
             end_date=self.end_date,
             configs_path=self.configs_path,
@@ -109,14 +109,14 @@ class Runner:
         log(f"Runner: security step complete info_rows={security_rows}", type="info")
 
     def _run_index(self) -> None:
-        """Run optional index returns pull when index tickers are provided."""
-        if self.index_tickers is None:
-            log("Runner: index step skipped because index_tickers is None", type="info")
+        """Run optional index returns pull when index FIGIs are provided."""
+        if self.index_figis is None:
+            log("Runner: index step skipped because index_figis is None", type="info")
             self.index_data_source = None
             return
         log("Runner: starting index step", type="info")
         self.index_data_source = IndexDataSource(
-            tickers=self.index_tickers,
+            figis=self.index_figis,
             start_date=self.start_date,
             end_date=self.end_date,
             configs_path=self.configs_path,
@@ -138,10 +138,10 @@ class Runner:
             f"start_date={self.start_date} end_date={self.end_date}",
             type="info",
         )
-        tickers = self._run_holdings()
-        self._run_prices(tickers)
+        figis = self._run_holdings()
+        self._run_prices(figis)
         self._run_index()
-        self._run_security(tickers)
+        self._run_security(figis)
         log("Runner: run completed", type="info")
 
         return {

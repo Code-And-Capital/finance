@@ -34,14 +34,19 @@ def test_eps_revisions_skip_write_when_duplicate_minus_date():
     pipeline = EPSRevisionsData(tickers=["AAPL"])
     pulled = pd.DataFrame({"TICKER": ["AAPL"], "DATE": ["2024-01-02"], "VALUE": [1.0]})
     existing = pd.DataFrame(
-        {"TICKER": ["AAPL"], "DATE": ["2024-01-01"], "VALUE": [1.0]}
+        {
+            "TICKER": ["AAPL"],
+            "FIGI": ["FIGI_AAPL"],
+            "DATE": ["2024-01-01"],
+            "VALUE": [1.0],
+        }
     )
     pipeline._pull_with_missing_ticker_retries = MagicMock(return_value=pulled)
     pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
     pipeline.azure_data_source.read_sql_table = MagicMock(return_value=existing)
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()
 
@@ -88,6 +93,7 @@ def test_earnings_surprises_skip_write_when_duplicate_minus_date():
     existing = pd.DataFrame(
         {
             "TICKER": ["AAPL"],
+            "FIGI": ["FIGI_AAPL"],
             "DATE": ["2024-01-01"],
             "EARNINGS_DATE": [pd.Timestamp("2023-12-31")],
             "VALUE": [1.0],
@@ -98,7 +104,7 @@ def test_earnings_surprises_skip_write_when_duplicate_minus_date():
     pipeline.azure_data_source.read_sql_table = MagicMock(return_value=existing)
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()
 
@@ -162,13 +168,34 @@ def test_estimates_skip_write_when_duplicates_minus_date():
     pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
     pipeline.azure_data_source.read_sql_table = MagicMock(
         side_effect=[
-            pd.DataFrame({"TICKER": ["AAPL"], "DATE": ["2024-01-01"], "VALUE": [1.0]}),
-            pd.DataFrame({"TICKER": ["AAPL"], "DATE": ["2024-01-01"], "VALUE": [2.0]}),
-            pd.DataFrame({"TICKER": ["AAPL"], "DATE": ["2024-01-01"], "VALUE": [3.0]}),
+            pd.DataFrame(
+                {
+                    "TICKER": ["AAPL"],
+                    "FIGI": ["FIGI_AAPL"],
+                    "DATE": ["2024-01-01"],
+                    "VALUE": [1.0],
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "TICKER": ["AAPL"],
+                    "FIGI": ["FIGI_AAPL"],
+                    "DATE": ["2024-01-01"],
+                    "VALUE": [2.0],
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "TICKER": ["AAPL"],
+                    "FIGI": ["FIGI_AAPL"],
+                    "DATE": ["2024-01-01"],
+                    "VALUE": [3.0],
+                }
+            ),
         ]
     )
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()

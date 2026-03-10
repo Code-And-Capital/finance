@@ -6,10 +6,14 @@ from typing import Optional, Sequence
 
 import pandas as pd
 
-from handyman.base import DateLike, read_table_by_filters, run_sql_template
+from handyman.base import (
+    DateLike,
+    build_security_filter_sql,
+    read_table_by_filters,
+    run_sql_template,
+)
 from sql.script_factory import default_sql_client
 from utils.dataframe_utils import ensure_datetime_column
-from utils.list_utils import normalize_string_list
 
 _FUNDAMENTAL_TABLES: dict[tuple[str, bool], str] = {
     ("financial", True): "financial_annual",
@@ -34,6 +38,7 @@ def get_fundamentals(
     statement_type: str,
     annual: bool,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -49,6 +54,8 @@ def get_fundamentals(
         If True, query annual data; otherwise query quarterly data.
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to the ``DATE`` column.
     configs_path
@@ -82,19 +89,23 @@ def get_fundamentals(
         df = read_table_by_filters(
             table_name=table_name,
             tickers=tickers,
+            figis=figis,
             start_date=start_date,
             configs_path=configs_path,
         )
         return ensure_datetime_column(df, "DATE")
 
-    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
-    ticker_filter = default_sql_client.add_in_filter("TICKER", normalized_tickers)
+    security_filter = build_security_filter_sql(
+        sql_client=default_sql_client,
+        tickers=tickers,
+        figis=figis,
+    )
     df = run_sql_template(
         sql_file="fundamentals_latest.txt",
         filters={
             "table_name": default_sql_client.quote_ident(table_name),
             "partition_column": default_sql_client.quote_ident("REPORT_DATE"),
-            "ticker_filter": ticker_filter,
+            "security_filter": security_filter,
             "date_filter": "",
         },
         configs_path=configs_path,
@@ -105,6 +116,7 @@ def get_fundamentals(
 def get_eps_revisions(
     *,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -115,6 +127,8 @@ def get_eps_revisions(
     ----------
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to the ``DATE`` column.
     configs_path
@@ -132,15 +146,19 @@ def get_eps_revisions(
         df = read_table_by_filters(
             table_name="eps_revisions",
             tickers=tickers,
+            figis=figis,
             start_date=start_date,
             configs_path=configs_path,
         )
     else:
-        normalized_tickers = normalize_string_list(tickers, field_name="tickers")
-        ticker_filter = default_sql_client.add_in_filter("TICKER", normalized_tickers)
+        security_filter = build_security_filter_sql(
+            sql_client=default_sql_client,
+            tickers=tickers,
+            figis=figis,
+        )
         df = run_sql_template(
             sql_file="eps_revisions_latest.txt",
-            filters={"ticker_filter": ticker_filter, "date_filter": ""},
+            filters={"security_filter": security_filter, "date_filter": ""},
             configs_path=configs_path,
         )
     return ensure_datetime_column(df, "DATE")
@@ -149,6 +167,7 @@ def get_eps_revisions(
 def get_earnings_surprises(
     *,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -159,6 +178,8 @@ def get_earnings_surprises(
     ----------
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to the ``DATE`` column.
     configs_path
@@ -176,15 +197,19 @@ def get_earnings_surprises(
         df = read_table_by_filters(
             table_name="earnings_surprises",
             tickers=tickers,
+            figis=figis,
             start_date=start_date,
             configs_path=configs_path,
         )
     else:
-        normalized_tickers = normalize_string_list(tickers, field_name="tickers")
-        ticker_filter = default_sql_client.add_in_filter("TICKER", normalized_tickers)
+        security_filter = build_security_filter_sql(
+            sql_client=default_sql_client,
+            tickers=tickers,
+            figis=figis,
+        )
         df = run_sql_template(
             sql_file="earnings_surprises_latest.txt",
-            filters={"ticker_filter": ticker_filter, "date_filter": ""},
+            filters={"security_filter": security_filter, "date_filter": ""},
             configs_path=configs_path,
         )
 
@@ -198,6 +223,7 @@ def _get_estimates_by_type(
     *,
     estimate_type: str,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -208,19 +234,23 @@ def _get_estimates_by_type(
         df = read_table_by_filters(
             table_name=table_name,
             tickers=tickers,
+            figis=figis,
             start_date=start_date,
             configs_path=configs_path,
         )
         return ensure_datetime_column(df, "DATE")
 
-    normalized_tickers = normalize_string_list(tickers, field_name="tickers")
-    ticker_filter = default_sql_client.add_in_filter("TICKER", normalized_tickers)
+    security_filter = build_security_filter_sql(
+        sql_client=default_sql_client,
+        tickers=tickers,
+        figis=figis,
+    )
     df = run_sql_template(
         sql_file="fundamentals_latest.txt",
         filters={
             "table_name": default_sql_client.quote_ident(table_name),
             "partition_column": default_sql_client.quote_ident("PERIOD"),
-            "ticker_filter": ticker_filter,
+            "security_filter": security_filter,
             "date_filter": "",
         },
         configs_path=configs_path,
@@ -231,6 +261,7 @@ def _get_estimates_by_type(
 def get_eps_estimates(
     *,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -241,6 +272,8 @@ def get_eps_estimates(
     ----------
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to the ``DATE`` column.
     configs_path
@@ -252,6 +285,7 @@ def get_eps_estimates(
     return _get_estimates_by_type(
         estimate_type="eps",
         tickers=tickers,
+        figis=figis,
         start_date=start_date,
         configs_path=configs_path,
         get_latest=get_latest,
@@ -261,6 +295,7 @@ def get_eps_estimates(
 def get_revenue_estimates(
     *,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -271,6 +306,8 @@ def get_revenue_estimates(
     ----------
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to the ``DATE`` column.
     configs_path
@@ -282,6 +319,7 @@ def get_revenue_estimates(
     return _get_estimates_by_type(
         estimate_type="revenue",
         tickers=tickers,
+        figis=figis,
         start_date=start_date,
         configs_path=configs_path,
         get_latest=get_latest,
@@ -291,6 +329,7 @@ def get_revenue_estimates(
 def get_growth_estimates(
     *,
     tickers: Optional[Sequence[str] | str] = None,
+    figis: Optional[Sequence[str] | str] = None,
     start_date: Optional[DateLike] = None,
     configs_path: Optional[str] = None,
     get_latest: bool = False,
@@ -301,6 +340,8 @@ def get_growth_estimates(
     ----------
     tickers
         Optional ticker filter value(s).
+    figis
+        Optional FIGI filter value(s). Cannot be combined with ``tickers``.
     start_date
         Optional inclusive lower bound applied to the ``DATE`` column.
     configs_path
@@ -312,6 +353,7 @@ def get_growth_estimates(
     return _get_estimates_by_type(
         estimate_type="growth",
         tickers=tickers,
+        figis=figis,
         start_date=start_date,
         configs_path=configs_path,
         get_latest=get_latest,

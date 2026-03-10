@@ -43,36 +43,62 @@ class PricingData(YahooData):
         self.table_name = "prices"
         self._today = date.today
 
-    def _build_max_date_query(self) -> str:
-        """Build SQL query for ticker-wise max available pricing dates."""
+    def _build_max_date_query(self, *, figi_values: list[str]) -> str:
+        """Build SQL query for FIGI-wise max available pricing dates."""
         return self.sql_client.render_sql_query(
             query_path=self.sql_client.resolve_sql_path("max_date.txt"),
             filters={
-                "ticker_filter": self.sql_client.add_in_filter("TICKER", self.tickers),
+                "figi_filter": self.sql_client.add_in_filter("FIGI", figi_values),
                 "table_name": self.table_name,
             },
         )
 
-    def _fetch_max_dates(self, *, configs_path: str | None = None) -> pd.DataFrame:
-        """Fetch max dates per ticker from Azure SQL."""
-        query = self._build_max_date_query()
+    def _fetch_max_dates(
+        self,
+        *,
+        figi_values: list[str],
+        configs_path: str | None = None,
+    ) -> pd.DataFrame:
+        """Fetch max dates per FIGI from Azure SQL."""
+        if not figi_values:
+            log(
+                "No FIGI values available for max-date lookup; using default start date mapping."
+            )
+            return pd.DataFrame(columns=["FIGI", "START_DATE"])
+        query = self._build_max_date_query(figi_values=figi_values)
         engine = self.azure_data_source.get_engine(configs_path=configs_path)
         max_dates = self.azure_data_source.read_sql_table(engine=engine, query=query)
         log(f"Fetched max-date mapping from Azure: {len(max_dates)} rows")
         return max_dates
 
     def _build_start_date_mapping(
-        self, max_dates: pd.DataFrame, yahoo_client
+        self,
+        max_dates: pd.DataFrame,
+        yahoo_client,
+        ticker_to_figi: dict[str, str | None],
     ) -> dict[str, pd.Timestamp]:
-        """Build ticker->start_date mapping using DB max date + one business day."""
+        """Build ticker->start_date mapping from FIGI max-dates + one business day."""
         max_dates = max_dates.copy()
         max_dates["START_DATE"] = pd.to_datetime(max_dates["START_DATE"]) + BDay(1)
+        max_dates["FIGI"] = max_dates["FIGI"].astype(str).str.strip()
 
-        return dataframe_utils.df_to_dict(
-            self._add_missing_tickers(max_dates, yahoo_client.tickers),
-            "TICKER",
+        figi_to_start = dataframe_utils.df_to_dict(
+            max_dates,
+            "FIGI",
             "START_DATE",
         )
+        rows = []
+        for ticker in yahoo_client.tickers:
+            figi = ticker_to_figi.get(ticker)
+            figi_key = str(figi).strip() if figi is not None else ""
+            rows.append(
+                {
+                    "TICKER": ticker,
+                    "START_DATE": figi_to_start.get(figi_key, "2000-01-01"),
+                }
+            )
+        ticker_dates = pd.DataFrame(rows)
+        return dataframe_utils.df_to_dict(ticker_dates, "TICKER", "START_DATE")
 
     def _filter_future_start_dates(
         self,
@@ -93,25 +119,6 @@ class PricingData(YahooData):
         return eligible, skipped
 
     @staticmethod
-    def _add_missing_tickers(
-        df: pd.DataFrame,
-        ticker_list: list[str],
-    ) -> pd.DataFrame:
-        """Ensure all tickers exist in the DataFrame with a default START_DATE."""
-        if "TICKER" not in df.columns:
-            raise KeyError("DataFrame must contain a 'TICKER' column")
-
-        out = df.copy()
-        existing = set(out["TICKER"])
-        missing = [ticker for ticker in ticker_list if ticker not in existing]
-
-        if missing:
-            new_rows = pd.DataFrame({"TICKER": missing, "START_DATE": "2000-01-01"})
-            out = pd.concat([out, new_rows], ignore_index=True)
-
-        return out
-
-    @staticmethod
     def _coerce_date_only(df: pd.DataFrame, column: str = "DATE") -> pd.DataFrame:
         """Convert a datetime column to python date objects."""
         out = df.copy()
@@ -120,45 +127,67 @@ class PricingData(YahooData):
         return out
 
     @staticmethod
-    def _find_adjusted_tickers(df: pd.DataFrame) -> list[str]:
-        """Return tickers with dividends or stock-split corporate actions."""
-        required = {"TICKER", "DIVIDENDS", "STOCK_SPLITS"}
+    def _find_adjusted_figis(df: pd.DataFrame) -> list[str]:
+        """Return FIGIs with dividends or stock-split corporate actions."""
+        required = {"FIGI", "DIVIDENDS", "STOCK_SPLITS"}
         if not required.issubset(df.columns):
             return []
 
-        adjusted = df[(df["DIVIDENDS"] > 0) | (df["STOCK_SPLITS"] > 0)][
-            "TICKER"
-        ].unique()
-        return [str(ticker) for ticker in adjusted]
+        adjusted = df[(df["DIVIDENDS"] > 0) | (df["STOCK_SPLITS"] > 0)]["FIGI"].unique()
+        return [str(figi).strip() for figi in adjusted if str(figi).strip()]
+
+    @staticmethod
+    def _map_figis_to_tickers(
+        adjusted_figis: list[str],
+        ticker_to_figi: dict[str, str | None] | None,
+    ) -> list[str]:
+        """Map adjusted FIGIs back to tickers for Yahoo re-pulls."""
+        if not adjusted_figis or not ticker_to_figi:
+            return []
+        target_figis = {
+            str(figi).strip() for figi in adjusted_figis if str(figi).strip()
+        }
+        mapped = [
+            str(ticker).strip().upper()
+            for ticker, figi in ticker_to_figi.items()
+            if str(ticker).strip() and str(figi).strip() in target_figis
+        ]
+        return list(dict.fromkeys(mapped))
 
     def _pull_adjusted_prices(
         self,
-        adjusted_tickers: list[str],
+        adjusted_figis: list[str],
         *,
         use_start_date_mapping: bool,
         configs_path: str | None,
+        ticker_to_figi: dict[str, str | None] | None,
     ) -> pd.DataFrame:
-        """Re-pull pricing history for adjusted tickers only."""
+        """Re-pull pricing history for adjusted FIGIs only."""
+        adjusted_tickers = self._map_figis_to_tickers(adjusted_figis, ticker_to_figi)
+        if not adjusted_tickers:
+            return pd.DataFrame()
         return PricingData(tickers=adjusted_tickers).run(
             use_start_date_mapping=use_start_date_mapping,
             write_to_azure=False,
             adjust_for_corporate_actions=False,
             configs_path=configs_path,
+            ticker_to_figi=ticker_to_figi,
         )
 
-    def _overwrite_adjusted_tickers(
+    def _overwrite_adjusted_figis(
         self,
         *,
         engine,
-        adjusted_tickers: list[str],
+        adjusted_figis: list[str],
         use_start_date_mapping: bool,
         configs_path: str | None,
+        ticker_to_figi: dict[str, str | None] | None,
     ) -> None:
-        """Delete and reload full history for adjusted tickers."""
-        log(f"Overwriting adjusted tickers in Azure: {len(adjusted_tickers)} tickers")
-        escaped = [ticker.replace("'", "''") for ticker in adjusted_tickers]
+        """Delete and reload full history for adjusted FIGIs."""
+        log(f"Overwriting adjusted FIGIs in Azure: {len(adjusted_figis)} figis")
+        escaped = [figi.replace("'", "''") for figi in adjusted_figis]
         joined = "', '".join(escaped)
-        where_clause = f"TICKER IN ('{joined}')"
+        where_clause = f"FIGI IN ('{joined}')"
         delete_query = self.sql_client.build_delete_query(
             table_name=self.table_name,
             where_clause=where_clause,
@@ -166,12 +195,16 @@ class PricingData(YahooData):
         )
 
         self.azure_data_source.delete_sql_rows(query=delete_query, engine=engine)
-        log("Deleted existing price rows for adjusted tickers")
+        log("Deleted existing price rows for adjusted FIGIs")
         adjusted_prices = self._pull_adjusted_prices(
-            adjusted_tickers,
+            adjusted_figis,
             use_start_date_mapping=use_start_date_mapping,
             configs_path=configs_path,
+            ticker_to_figi=ticker_to_figi,
         )
+        if adjusted_prices.empty:
+            log("No adjusted price rows returned for adjusted FIGIs.", type="warning")
+            return
         log(f"Re-pulled adjusted price rows: {len(adjusted_prices)}")
         self.azure_data_source.write_sql_table(
             engine=engine,
@@ -188,6 +221,7 @@ class PricingData(YahooData):
         write_to_azure: bool = False,
         adjust_for_corporate_actions: bool = True,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Execute the end-to-end pricing pull workflow."""
         log(
@@ -201,9 +235,27 @@ class PricingData(YahooData):
             str(ticker).strip().upper() for ticker in self.tickers
         ]
         if use_start_date_mapping:
+            if not ticker_to_figi:
+                raise ValueError(
+                    "ticker_to_figi must be provided when use_start_date_mapping=True."
+                )
             yahoo_client = self._resolve_client()
-            max_dates = self._fetch_max_dates(configs_path=configs_path)
-            start_date_mapping = self._build_start_date_mapping(max_dates, yahoo_client)
+            figi_values = [
+                str(figi).strip()
+                for ticker, figi in ticker_to_figi.items()
+                if str(ticker).strip().upper() in set(yahoo_client.tickers)
+                and figi is not None
+                and str(figi).strip()
+            ]
+            max_dates = self._fetch_max_dates(
+                figi_values=figi_values,
+                configs_path=configs_path,
+            )
+            start_date_mapping = self._build_start_date_mapping(
+                max_dates,
+                yahoo_client,
+                ticker_to_figi=ticker_to_figi,
+            )
             log(f"Built start-date mapping for {len(start_date_mapping)} tickers")
             eligible_mapping, skipped_tickers = self._filter_future_start_dates(
                 start_date_mapping
@@ -263,6 +315,7 @@ class PricingData(YahooData):
         if not dataframe.empty:
             dataframe = dataframe_utils.ensure_datetime_column(dataframe, "DATE")
             dataframe = self._coerce_date_only(dataframe, "DATE")
+            dataframe = self._attach_figi_from_mapping(dataframe, ticker_to_figi)
         else:
             log("Pricing pull returned an empty dataframe", type="warning")
 
@@ -276,34 +329,35 @@ class PricingData(YahooData):
             )
             log(f"Wrote pricing rows to Azure: {len(dataframe)}")
             if adjust_for_corporate_actions:
-                adjusted_tickers = self._find_adjusted_tickers(dataframe)
-                if adjusted_tickers and start_date_mapping is not None:
+                adjusted_figis = self._find_adjusted_figis(dataframe)
+                if adjusted_figis and start_date_mapping is not None:
                     cutoff = pd.Timestamp("2000-01-01")
-                    existing_tickers = {
-                        ticker
+                    existing_figis = {
+                        str(ticker_to_figi.get(ticker)).strip()
                         for ticker, mapped_start in start_date_mapping.items()
                         if pd.Timestamp(mapped_start) > cutoff
+                        and ticker_to_figi is not None
+                        and str(ticker_to_figi.get(ticker)).strip()
                     }
-                    before_count = len(adjusted_tickers)
-                    adjusted_tickers = [
-                        ticker
-                        for ticker in adjusted_tickers
-                        if ticker in existing_tickers
+                    before_count = len(adjusted_figis)
+                    adjusted_figis = [
+                        figi for figi in adjusted_figis if figi in existing_figis
                     ]
-                    if before_count != len(adjusted_tickers):
+                    if before_count != len(adjusted_figis):
                         log(
-                            "Filtered adjusted tickers to DB-existing names only: "
-                            f"{len(adjusted_tickers)}/{before_count}",
+                            "Filtered adjusted FIGIs to DB-existing names only: "
+                            f"{len(adjusted_figis)}/{before_count}",
                         )
-                if adjusted_tickers:
+                if adjusted_figis:
                     log(
-                        f"Adjusted tickers identified for full overwrite: {adjusted_tickers}"
+                        f"Adjusted FIGIs identified for full overwrite: {adjusted_figis}"
                     )
-                    self._overwrite_adjusted_tickers(
+                    self._overwrite_adjusted_figis(
                         engine=engine,
-                        adjusted_tickers=adjusted_tickers,
+                        adjusted_figis=adjusted_figis,
                         use_start_date_mapping=use_start_date_mapping,
                         configs_path=configs_path,
+                        ticker_to_figi=ticker_to_figi,
                     )
 
         return dataframe
@@ -330,6 +384,7 @@ class AnalystPriceTargetsData(YahooData):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Run analyst price targets pull workflow with missing-ticker retries."""
         log(
@@ -348,13 +403,16 @@ class AnalystPriceTargetsData(YahooData):
             log("Dropped CURRENT column from analyst price target payload")
         if "DATE" in dataframe.columns:
             dataframe = dataframe_utils.ensure_datetime_column(dataframe, "DATE")
+        dataframe = self._attach_figi_from_mapping(dataframe, ticker_to_figi)
         log(f"Pulled analyst price target rows: {len(dataframe)}")
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            existing_df = self._load_existing_rows_for_tickers(
+            figi_values = self._extract_figi_values(dataframe)
+            existing_df = self._load_existing_rows_for_figi(
                 engine=engine,
                 table_name=self.table_name,
+                figis=figi_values,
                 log_context=self.table_name,
             )
             rows_to_write = self._filter_new_or_changed_rows(

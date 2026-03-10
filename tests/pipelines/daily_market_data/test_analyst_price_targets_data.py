@@ -40,11 +40,16 @@ def test_analyst_price_targets_run_skips_duplicate_minus_date():
     pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
     pipeline.azure_data_source.read_sql_table = MagicMock(
         return_value=pd.DataFrame(
-            {"DATE": ["2024-01-01"], "TARGET_MEAN": [250.0], "TICKER": ["AAPL"]}
+            {
+                "DATE": ["2024-01-01"],
+                "TARGET_MEAN": [250.0],
+                "TICKER": ["AAPL"],
+                "FIGI": ["FIGI_AAPL"],
+            }
         )
     )
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True)
+    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()

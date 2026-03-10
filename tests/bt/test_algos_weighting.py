@@ -1062,7 +1062,9 @@ def test_limit_benchmark_deviation_intersects_with_selected_and_normalizes_bench
     s = Strategy("s")
     dts = pd.date_range("2010-01-01", periods=1)
     data = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=100.0)
-    benchmark = pd.DataFrame(index=dts, columns=["c1", "c2", "c3"], data=[[0.2, 0.2, 0.3]])
+    benchmark = pd.DataFrame(
+        index=dts, columns=["c1", "c2", "c3"], data=[[0.2, 0.2, 0.3]]
+    )
     s.setup(data, benchmark_wide=benchmark)
     s.update(dts[0])
     s.temp["selected"] = ["c2", "c3"]

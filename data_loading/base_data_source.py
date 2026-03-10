@@ -45,6 +45,12 @@ class BaseDataSource(ABC):
             "BaseDataSource.format() should be overwritten by subclasses."
         )
 
+    def _requested_figis(self) -> list[str]:
+        """Return normalized requested FIGI list."""
+        raw = [self.figis] if isinstance(self.figis, str) else list(self.figis)
+        normalized = [str(f).strip().upper() for f in raw if str(f).strip()]
+        return [f for f in normalized if f not in {"NAN", "NONE"}]
+
     def run(self) -> pd.DataFrame:
         """Run load+transform workflow and return transformed dataframe.
 

@@ -7,7 +7,7 @@ WITH ranked AS (
         ) AS _ROW_NUM
     FROM [dbo].[options] AS o
     WHERE 1=1
-    {ticker_filter}
+    {security_filter}
     {date_filter}
 )
 SELECT *

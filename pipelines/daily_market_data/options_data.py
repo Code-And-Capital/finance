@@ -43,6 +43,7 @@ class OptionsData(YahooData):
         *,
         write_to_azure: bool = False,
         configs_path: str | None = None,
+        ticker_to_figi: dict[str, str | None] | None = None,
     ) -> pd.DataFrame:
         """Run options pull workflow with retry support for missing tickers."""
         log(
@@ -61,12 +62,15 @@ class OptionsData(YahooData):
         for column in ["DATE", "LASTTRADEDATE", "EXPIRATION"]:
             if column in dataframe.columns:
                 dataframe = dataframe_utils.ensure_datetime_column(dataframe, column)
+        dataframe = self._attach_figi_from_mapping(dataframe, ticker_to_figi)
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            existing_df = self._load_existing_rows_for_tickers(
+            figi_values = self._extract_figi_values(dataframe)
+            existing_df = self._load_existing_rows_for_figi(
                 engine=engine,
                 table_name=self.table_name,
+                figis=figi_values,
                 log_context=self.table_name,
             )
             rows_to_write = self._filter_new_or_changed_rows(
