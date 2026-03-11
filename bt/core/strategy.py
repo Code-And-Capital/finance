@@ -3,6 +3,7 @@ import numpy as np
 from copy import deepcopy
 from bt.core.nodes import Node
 from bt.algos.core import AlgoStack
+from bt.core.commission import zero_commission
 from bt.core.security import SecurityBase, Security
 from utils.math_utils import is_zero
 
@@ -800,7 +801,7 @@ class StrategyBase(Node):
 
     def _dflt_comm_fn(self, q: float, p: float) -> float:
         """Default commission function (no fees)."""
-        return 0.0
+        return zero_commission(q, p)
 
     def _create_child_if_needed(self, child: str) -> None:
         """

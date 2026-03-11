@@ -7,7 +7,9 @@ __all__ = [
     "AlgoStack",
     # Subpackages are intentionally not imported here to avoid circular imports.
     "capital",
+    "covariance",
     "debugging",
+    "expected_returns",
     "factors",
     "flow",
     "portfolio_ops",

@@ -409,7 +409,7 @@ if __name__ == "__main__":
     # tail -f "$(ls -t logs/daily_market_data_*.log | head -n 1)"
     write_to_db = True
     configs_path = None
-    include_options = True
+    include_options = False
     use_latest_holdings_snapshot = False
     log_dir = PROJECT_ROOT / "logs"
     log_file = log_dir / f"daily_market_data_{datetime.now():%Y%m%d_%H%M%S}.log"

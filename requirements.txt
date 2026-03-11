@@ -18,3 +18,4 @@ pyodbc
 sqlalchemy
 cvxpy
 drs
+mgarch
