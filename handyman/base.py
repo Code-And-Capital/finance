@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Shared query helpers for handyman data access."""
 
 from datetime import date, datetime

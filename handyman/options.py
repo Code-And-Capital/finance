@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Options query helpers."""
 
 from typing import Optional, Sequence

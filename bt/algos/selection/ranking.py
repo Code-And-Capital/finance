@@ -157,7 +157,8 @@ class SelectQuantile(SelectAll):
     - NaN and non-finite metric values are excluded before bucketing.
     - Buckets are created by rank position using ``numpy.array_split``.
     - Summary stats for selected bucket are appended to ``self.stats`` with
-      index ``target.now`` and columns ``TOTAL_NAMES``, ``MEAN``, ``MEDIAN``.
+      the current market-data timestamp on the index and columns
+      ``TOTAL_NAMES``, ``MEAN``, ``MEDIAN``.
     - Returns ``False`` when required state is missing or malformed.
     """
 
@@ -242,8 +243,8 @@ class SectorDoubleSort(SelectAll):
     - Candidate pool source is ``temp['selected']``.
       If missing/empty, candidates are first populated via :class:`SelectAll`.
     - Ranking is constrained to ``temp['selected']`` (same contract as SelectN).
-    - Sector data must be wide DataFrame (dates x tickers); row at ``target.now``
-      is used for sector labels.
+    - Sector data must be wide DataFrame (dates x tickers); the row at the
+      current market-data timestamp is used for sector labels.
     - Within each sector, securities are sorted by metric and split into ``n``
       buckets via ``numpy.array_split``; the best bucket is selected.
     - Summary stats are appended to ``self.stats`` with columns

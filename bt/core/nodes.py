@@ -1,266 +1,186 @@
-from __future__ import annotations
-from typing import Any, Dict, Iterable, List, Optional, Union
-from copy import deepcopy
+from typing import Any, Iterable, Mapping
 
 
 class Node:
     """
-    Base class representing a node in a hierarchical strategy tree.
+    Base node in the portfolio tree.
 
-    Each node may contain children that represent either sub-strategies or
-    securities. Nodes form a tree where every node maintains a reference to
-    its parent and the root of the tree.
+    A node owns shared portfolio state and child attachment. Nodes are
+    constructed unattached and receive a parent only when another node
+    attaches them via ``_add_children()``. Concrete strategy and security
+    classes implement the execution methods.
 
     Parameters
     ----------
     name : str
-        The node's name.
-    parent : Node, optional
-        Parent node. If None, the node becomes the root of the tree.
-    children : list, dict, optional
-        Child nodes or string identifiers. A dict maps names to children.
-
-    Attributes
-    ----------
-    name : str
-        Node name.
-    parent : Node
-        Parent node reference.
-    root : Node
-        Top-level node of the tree.
-    children : dict of str -> Node
-        Actual instantiated child nodes.
-    now : datetime or int
-        Current timestamp used during backtests.
-    stale : bool
-        Flag indicating whether an update is required.
-    full_name : str
-        Node name including parent scopes.
-    members : list of Node
-        List of this node and all descendants.
+        Node name within its parent scope.
+    children : mapping | iterable | None, optional
+        Child nodes to attach immediately. Mapping input allows explicit child
+        renaming. Child nodes are attached by ownership, not copied.
     """
 
     def __init__(
         self,
         name: str,
-        parent: Optional[Node] = None,
-        children: Optional[Union[Dict[str, Any], Iterable[Any]]] = None,
+        children: Mapping[str, Any] | Iterable[Any] | None = None,
     ) -> None:
+        if not isinstance(name, str) or not name:
+            raise ValueError("Node name must be a non-empty string.")
+
         self.name = name
-        self.children = {}
-        self._lazy_children = {}
-        self._universe_tickers = []
-        self._childrenv = []
-        self._original_children_are_present = (
-            children is not None and len(children) >= 1
-        )
-
-        # strategy-child bookkeeping
+        self.children: dict[str, Node] = {}
+        self._childrenv: list[Node] = []
         self._has_strat_children = False
-        self._strat_children = []
+        self._strat_children: list[str] = []
+        self.parent: Node | None = None
+        self.integer_positions = True
 
-        # root or child?
-        if parent is None:
-            self.parent = self
-            self.root = self
-            self.integer_positions = True
-        else:
-            self.parent = parent
-            parent._add_children([self], dc=False)
-
-        # add children if provided
-        self._add_children(children, dc=True)
-
-        # state
         self.now = 0
-        self.root.stale = False
+        self.inow = 0
+        self.last_day = 0
 
-        # helper values
-        self._price = 0
-        self._value = 0
-        self._notl_value = 0
-        self._weight = 0
-        self._capital = 0
+        self._price = 0.0
+        self._value = 0.0
+        self._weight = 0.0
+        self._capital = 0.0
 
-        self._issec = False  # security flag
-        self._fixed_income = False  # notional-weighting flag
-        self._bidoffer_set = False
-        self._bidoffer_paid = 0
+        self._issec = False
+        self._add_children(self._normalize_children(children))
+
+    @staticmethod
+    def _normalize_children(
+        children: Mapping[str, Any] | Iterable[Any] | None,
+    ) -> list[Any]:
+        """Normalize child input into a concrete list."""
+        if children is None:
+            return []
+        if isinstance(children, Mapping):
+            return list(children.items())
+        if isinstance(children, (str, bytes)):
+            raise TypeError("children must be node objects, not strings.")
+        return list(children)
 
     def __getitem__(self, key: str) -> Node:
+        """Return a child node by name."""
         return self.children[key]
 
-    def _add_children(
-        self, children: Optional[Union[Dict[str, Any], Iterable[Any]]], dc: bool
-    ) -> None:
-        """
-        Add new children to this node.
-
-        Parameters
-        ----------
-        children : iterable, dict, or None
-            Child nodes or ticker names. A dict preserves explicit names.
-        dc : bool
-            If True, deep-copies child nodes before attaching.
-        """
-
-        # Import here to avoid circular references
-        from .security import Security
-        from .strategy import StrategyBase
-
+    def _add_children(self, children: Iterable[Any] | None) -> None:
+        """Attach child nodes to this node with explicit single-parent ownership."""
         if children is None:
             return
 
-        # normalize dictionary mapping -> list
-        if isinstance(children, dict):
-            tmp = []
-            for child_name, child_obj in children.items():
-                if isinstance(child_obj, str):
-                    tmp.append(child_name)
-                else:
-                    if dc:
-                        child_obj = deepcopy(child_obj)
-                    child_obj.name = child_name
-                    tmp.append(child_obj)
-            children = tmp
+        for item in children:
+            child_name_override: str | None = None
+            child = item
 
-        # add each child
-        for child in children:
-            if dc:
-                child = deepcopy(child)
+            if isinstance(item, tuple) and len(item) == 2:
+                child_name_override, child = item
 
-            # string = lazy security definition
-            if isinstance(child, str):
-                if child in self._universe_tickers or child in self._lazy_children:
-                    raise ValueError(f"Child {child} already exists")
-                child = Security(child, lazy_add=True)
+            if not isinstance(child, Node):
+                raise TypeError("children must contain Node instances.")
 
-            # lazy-add object
-            if getattr(child, "lazy_add", False):
-                self._lazy_children[child.name] = child
-                continue
+            if child_name_override is not None:
+                if not isinstance(child_name_override, str) or not child_name_override:
+                    raise ValueError("Child mapping keys must be non-empty strings.")
+                child.name = child_name_override
 
-            # immediate child creation
             if child.name in self.children:
-                raise ValueError(f"Child {child.name} already exists")
+                raise ValueError(f"Child '{child.name}' already exists.")
+
+            if child.parent is not None and child.parent is not self:
+                raise ValueError(
+                    f"Child '{child.name}' is already attached to '{child.parent.full_name}'."
+                )
 
             child.parent = self
-            child._set_root(self.root)
             child.use_integer_positions(self.integer_positions)
 
             self.children[child.name] = child
             self._childrenv.append(child)
 
-            # track strategy children
-            if isinstance(child, StrategyBase):
+            if getattr(child, "_is_strategy", False):
                 self._has_strat_children = True
                 self._strat_children.append(child.name)
-            elif child.name not in self._universe_tickers:
-                self._universe_tickers.append(child.name)
-
-    def _set_root(self, root: Node) -> None:
-        """Propagate the root reference down the subtree."""
-        self.root = root
-        for child in self._childrenv:
-            child._set_root(root)
 
     def use_integer_positions(self, integer_positions: bool) -> None:
-        """
-        Enable or disable integer-only positions.
-
-        Parameters
-        ----------
-        integer_positions : bool
-            Whether positions must be integers.
-        """
-        self.integer_positions = integer_positions
+        """Propagate integer-position policy through the subtree."""
+        self.integer_positions = bool(integer_positions)
         for child in self._childrenv:
-            child.use_integer_positions(integer_positions)
+            child.use_integer_positions(self.integer_positions)
 
     @property
-    def fixed_income(self) -> bool:
-        """Return whether node uses notional weighting."""
-        return self._fixed_income
-
-    @property
-    def prices(self):
-        """Return the full price series for this node."""
+    def prices(self) -> Any:
+        """Return the node's price history."""
         raise NotImplementedError()
 
     @property
-    def price(self):
-        """Return the latest price of the node."""
+    def price(self) -> Any:
+        """Return the node's latest price."""
         raise NotImplementedError()
 
     @property
     def value(self) -> float:
-        """Return current node value, updating if stale."""
-        if self.root.stale:
-            self.root.update(self.root.now, None)
+        """Return the current marked value."""
         return self._value
 
     @property
-    def notional_value(self) -> float:
-        """Return current notional value, updating if stale."""
-        if self.root.stale:
-            self.root.update(self.root.now, None)
-        return self._notl_value
-
-    @property
     def weight(self) -> float:
-        """Return weight relative to parent."""
-        if self.root.stale:
-            self.root.update(self.root.now, None)
+        """Return the weight relative to the parent."""
         return self._weight
 
-    def setup(self, universe: Any, **kwargs) -> None:
-        """Initialize node from a universe."""
+    def setup(self, prices: Any, **kwargs: Any) -> None:
+        """Initialize the node against historical input data."""
         raise NotImplementedError()
 
-    def update(
-        self, date: Any, data: Optional[Any] = None, inow: Optional[int] = None
+    def pre_market_update(self, date: Any, inow: int) -> None:
+        """Advance the node into the pre-market phase for ``date``."""
+        raise NotImplementedError()
+
+    def post_market_update(self) -> None:
+        """Finalize node state after the market close."""
+        raise NotImplementedError()
+
+    def adjust(
+        self,
+        amount: float,
+        flow: bool = True,
+        **kwargs: Any,
     ) -> None:
-        """Update node state for the given date."""
+        """Adjust the node's capital by ``amount``."""
         raise NotImplementedError()
 
-    def adjust(self, amount: float, update: bool = True, flow: bool = True) -> None:
-        """Adjust node value by the given amount."""
-        raise NotImplementedError()
-
-    def allocate(self, amount: float, update: bool = True) -> None:
-        """Allocate capital to this node."""
+    def allocate(self, amount: float, **kwargs: Any) -> None:
+        """Allocate capital to the node."""
         raise NotImplementedError()
 
     @property
-    def members(self) -> List["Node"]:
-        """Return list of this node and all descendant nodes."""
+    def members(self) -> list[Node]:
+        """Return this node and all descendants in depth-first order."""
         result = [self]
-        for child in self.children.values():
+        for child in self._childrenv:
             result.extend(child.members)
         return result
 
     @property
     def full_name(self) -> str:
-        """Return hierarchical name including all parents."""
-        if self.parent is self:
+        """Return the fully-qualified hierarchical name."""
+        if self.parent is None:
             return self.name
         return f"{self.parent.full_name}>{self.name}"
 
     def __repr__(self) -> str:
+        """Return a compact tree-aware representation."""
         return f"<{self.__class__.__name__} {self.full_name}>"
 
     def to_dot(self, root: bool = True) -> str:
-        """
-        Return a DOT language representation of this node and children.
+        """Return a DOT representation of this subtree."""
 
-        Parameters
-        ----------
-        root : bool
-            Whether to wrap the output in a top-level `digraph` block.
-        """
-        name = lambda n: n.name or repr(n)
+        def display_name(node: Node) -> str:
+            return node.name or repr(node)
+
         edges = "\n".join(
-            f'\t"{name(self)}" -> "{name(child)}"' for child in self.children.values()
+            f'\t"{display_name(self)}" -> "{display_name(child)}"'
+            for child in self.children.values()
         )
         below = "\n".join(child.to_dot(False) for child in self.children.values())
         body = "\n".join([edges, below]).rstrip()

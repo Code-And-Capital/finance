@@ -1,7 +1,5 @@
 """Pipeline components for pulling Yahoo holder datasets."""
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 
 import pandas as pd
@@ -53,7 +51,7 @@ class _BaseHolders(YahooData):
         dataframe: pd.DataFrame,
         engine,
         date_columns: list[str],
-    ) -> None:
+    ) -> pd.DataFrame:
         """Write table rows after dedupe-minus-date checks."""
         figi_values = self._extract_figi_values(dataframe)
         existing_df = self._load_existing_rows_for_figi(
@@ -73,7 +71,7 @@ class _BaseHolders(YahooData):
         )
         if rows_to_write.empty:
             log(f"Skipped {table_name} write: no new or changed rows detected.")
-            return
+            return rows_to_write
 
         rows_to_write = rows_to_write.copy()
         dtype_overrides: dict[str, satypes.TypeEngine] = {}
@@ -94,6 +92,7 @@ class _BaseHolders(YahooData):
             dtype_overrides=dtype_overrides,
         )
         log(f"Wrote {table_name} rows to Azure: {len(rows_to_write)}")
+        return rows_to_write
 
 
 class InstitutionalHolders(_BaseHolders):
@@ -125,7 +124,7 @@ class InstitutionalHolders(_BaseHolders):
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            self._write_table(
+            return self._write_table(
                 table_name="institutional_holders",
                 dataframe=institutional_holders,
                 engine=engine,
@@ -159,7 +158,7 @@ class MajorHolders(_BaseHolders):
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            self._write_table(
+            return self._write_table(
                 table_name="major_holders",
                 dataframe=major_holders,
                 engine=engine,

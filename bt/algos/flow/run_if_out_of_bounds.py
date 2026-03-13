@@ -18,8 +18,9 @@ class RunIfOutOfBounds(Algo):
 
     Notes
     -----
-    This class only evaluates non-cash entries from ``target.temp["weights"]``.
-    Use :class:`RunIfCashOutOfBounds` for cash drift checks.
+    This class evaluates non-cash entries from the most recent valid
+    ``target.temp["weights"]`` mapping it has observed. Use
+    :class:`RunIfCashOutOfBounds` for cash drift checks.
     """
 
     def __init__(self, tolerance: float, mode: str = "relative"):
@@ -46,6 +47,7 @@ class RunIfOutOfBounds(Algo):
             tolerance, "RunIfOutOfBounds `tolerance`"
         )
         self.mode = mode
+        self._weights: dict[str, float] | None = None
 
     def _drift(self, current: float, target: float) -> float:
         if self.mode == "absolute":
@@ -57,9 +59,9 @@ class RunIfOutOfBounds(Algo):
     def _is_outside(self, drift: float) -> bool:
         return drift > self.tolerance
 
-    def _weight_items(self, weight_mapping: Any):
+    def _normalize_weights(self, weight_mapping: Any) -> dict[str, float] | None:
         if hasattr(weight_mapping, "items"):
-            return list(weight_mapping.items())
+            return dict(weight_mapping.items())
         return None
 
     def __call__(self, target: Any) -> bool:
@@ -80,15 +82,17 @@ class RunIfOutOfBounds(Algo):
         if temp is None:
             return False
 
-        if "weights" not in temp:
-            return False
+        if "weights" in temp:
+            latest_weights = self._normalize_weights(temp["weights"])
+            if latest_weights is None:
+                return False
+            self._weights = latest_weights
 
-        items = self._weight_items(temp["weights"])
-        if items is None:
+        if self._weights is None:
             return False
 
         children = getattr(target, "children", {})
-        for cname, desired_weight in items:
+        for cname, desired_weight in self._weights.items():
             if cname == "cash":
                 continue
 

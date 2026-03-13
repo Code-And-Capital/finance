@@ -1,7 +1,5 @@
 """Datasource for index-level prices and returns."""
 
-from __future__ import annotations
-
 from typing import Dict, Sequence
 
 import pandas as pd
@@ -29,7 +27,7 @@ class IndexDataSource(BaseDataSource):
         self.configs_path = configs_path
         self.prices_data_source: PricesDataSource | None = None
 
-    def load(self) -> pd.DataFrame:
+    def _load(self) -> pd.DataFrame:
         """Load index prices through the shared prices datasource."""
         log(
             "IndexDataSource: loading prices "
@@ -42,7 +40,7 @@ class IndexDataSource(BaseDataSource):
             end_date=self.end_date,
             configs_path=self.configs_path,
         )
-        prices_long = self.prices_data_source.run()
+        prices_long = self.prices_data_source.load()
         self.prices_data_source.format()
         return prices_long
 
@@ -72,7 +70,7 @@ class IndexDataSource(BaseDataSource):
     def format(self, dates: Sequence[pd.Timestamp] | pd.Index | None = None) -> None:
         """Populate formatted index price and return outputs."""
         if self.transformed_data is None:
-            raise ValueError("run() must be called before format().")
+            raise ValueError("load() must be called before format().")
         data = self.transformed_data
         outputs: Dict[str, pd.DataFrame] = {"index_returns_long": data.copy()}
 

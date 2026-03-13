@@ -20,7 +20,8 @@ class SelectRandomly(SelectAll):
       selected.
     - Result order is randomized and not stable across calls.
     - Returns ``False`` when ``target.temp`` is missing/not dict-like, universe
-      is missing/invalid, or ``target.now`` is missing/invalid/not in index.
+      is missing/invalid, or the current market-data timestamp is missing or
+      not in the universe index.
     """
 
     def __init__(

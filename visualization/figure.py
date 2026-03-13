@@ -1,7 +1,5 @@
 """Figure orchestration for chart composition and subplot rendering."""
 
-from __future__ import annotations
-
 from typing import Any, Dict, List, Optional
 
 import plotly.express as px

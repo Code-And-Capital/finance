@@ -1,7 +1,5 @@
 """Constraint builders for optimization problems."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import cvxpy as cvx

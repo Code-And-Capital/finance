@@ -1,7 +1,5 @@
 """Pipeline component for pulling company info and officers from Yahoo."""
 
-from __future__ import annotations
-
 import time
 from datetime import datetime, timedelta
 
@@ -201,6 +199,8 @@ class InfoData(YahooData):
         info_df, officers_df = self._pull_info_and_officers()
         info_df = self._attach_figi_from_mapping(info_df, ticker_to_figi)
         officers_df = self._attach_figi_from_mapping(officers_df, ticker_to_figi)
+        info_to_write = info_df
+        officers_to_write = officers_df
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
             log(f"Writing company info rows to Azure: {len(info_df)}")
@@ -280,4 +280,4 @@ class InfoData(YahooData):
                             overwrite=False,
                         )
                         log(f"Wrote address rows to Azure: {len(address_payload)}")
-        return info_df, officers_df
+        return info_to_write, officers_to_write

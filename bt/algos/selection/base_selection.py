@@ -73,14 +73,15 @@ class SelectHasData(SelectAll):
     Parameters
     ----------
     lookback : pandas.DateOffset, optional
-        Historical lookback window ending at ``target.now``.
+        Historical lookback window ending at the current market-data timestamp.
 
     Notes
     -----
     - Reads ``target.temp['selected']`` as candidate names.
       If missing or empty, candidates are first populated via :class:`SelectAll`.
     - Returns ``False`` when ``target.temp`` is not dict-like, ``target.universe``
-      is missing/invalid, or ``target.now`` is missing/invalid/not in index.
+      is missing/invalid, or the current market-data timestamp is missing or
+      not in the universe index.
     """
 
     def __init__(

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pandas as pd
 
 import scripts.daily_market_data as daily_script

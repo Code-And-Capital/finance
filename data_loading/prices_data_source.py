@@ -1,7 +1,5 @@
 """Datasource for market prices data."""
 
-from __future__ import annotations
-
 from typing import Dict, Sequence
 
 import pandas as pd
@@ -9,8 +7,6 @@ import pandas as pd
 from data_loading.base_data_source import BaseDataSource
 from handyman.prices import get_prices
 from utils.logging import log
-from visualization.charts import Line
-from visualization.figure import Figure
 
 
 class PricesDataSource(BaseDataSource):
@@ -31,7 +27,7 @@ class PricesDataSource(BaseDataSource):
         self.configs_path = configs_path
         self.pull_start_date: str | None = None
 
-    def load(self) -> pd.DataFrame:
+    def _load(self) -> pd.DataFrame:
         """Load prices in long format (DATE, FIGI, ADJ_CLOSE)."""
         effective_start_date = self.start_date
         if self.start_date is not None:
@@ -99,7 +95,7 @@ class PricesDataSource(BaseDataSource):
     def format(self, dates: Sequence[pd.Timestamp] | pd.Index | None = None) -> None:
         """Populate ``self.formatted_data`` with wide and long price representations."""
         if self.transformed_data is None:
-            raise ValueError("run() must be called before format().")
+            raise ValueError("load() must be called before format().")
         data = self.transformed_data
         log(
             f"PricesDataSource: formatting {len(data)} transformed rows",
@@ -178,63 +174,3 @@ class PricesDataSource(BaseDataSource):
                 out[column] = filled.where(row_idx <= last_valid_pos)
 
         return out
-
-    def plot_prices(
-        self,
-        *,
-        figis: Sequence[str] | None = None,
-        use_full_history: bool = False,
-        title: str = "Prices",
-        height: int = 500,
-    ) -> Figure:
-        """Create a line chart for rebased prices.
-
-        Parameters
-        ----------
-        figis
-            Optional FIGI subset to plot. If None, all available columns are used.
-        use_full_history
-            If True, plot ``prices_wide_full_history``; else plot ``prices_wide``.
-        title
-            Figure title.
-        height
-            Figure height in pixels.
-        """
-        key = "prices_wide_full_history" if use_full_history else "prices_wide"
-        prices = self.formatted_data.get(key)
-        if prices is None:
-            raise ValueError("format() must be called before plot_prices().")
-        if prices.empty:
-            raise ValueError(f"{key} is empty; nothing to plot.")
-
-        requested = None
-        if figis is not None:
-            requested = [str(f).strip().upper() for f in figis if str(f).strip()]
-            missing = [f for f in requested if f not in prices.columns]
-            if missing:
-                log(
-                    "PricesDataSource: requested plot FIGIs not found: "
-                    + ", ".join(missing),
-                    type="warning",
-                )
-            requested = [f for f in requested if f in prices.columns]
-            if not requested:
-                raise ValueError(
-                    "None of the requested FIGIs are present in prices_wide."
-                )
-
-        y_cols = requested if requested is not None else list(prices.columns)
-        line = Line(prices)
-        line.create(x="index", y=y_cols, width=2, mode="lines")
-        line.quick_styling(
-            x_title="Date",
-            y_title="Price",
-            selector_buttons=False,
-            rangeslider=False,
-        )
-
-        fig = Figure(rows=1, cols=1)
-        fig.add_chart(line, row=1, col=1)
-        fig.layout(title=title, height=height, showlegend=True)
-        fig.show()
-        return fig

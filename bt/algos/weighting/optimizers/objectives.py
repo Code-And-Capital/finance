@@ -1,7 +1,5 @@
 """Objective builders for optimization problems."""
 
-from __future__ import annotations
-
 import numpy as np
 import cvxpy as cvx
 

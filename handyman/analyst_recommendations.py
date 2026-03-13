@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Analyst recommendations query helpers."""
 
 from typing import Optional, Sequence

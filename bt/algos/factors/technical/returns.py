@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any
 
 import pandas as pd
@@ -11,14 +9,14 @@ class TotalReturn(Factor):
     """Compute trailing total return and store it in ``target.temp['total_return']``.
 
     Total return is computed over:
-    ``[target.now - lookback, target.now - lag]``.
+    ``[evaluation_timestamp - lookback, evaluation_timestamp - lag]``.
 
     Parameters
     ----------
     lookback : pandas.DateOffset, optional
         Lookback window for return computation.
     lag : pandas.DateOffset, optional
-        Lag applied to ``target.now`` to avoid look-ahead.
+        Lag applied to the evaluation timestamp to avoid look-ahead.
     """
 
     def __init__(

@@ -1,7 +1,5 @@
 """Performance analytics for strategy equity curves."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Union
 
@@ -213,19 +211,23 @@ class TimeSeriesPerformanceStats:
             self.stats = pd.Series(dtype=float)
             return
 
+        has_negative_price = bool((prices < 0.0).any())
         total_return = float(prices.iloc[-1] / prices.iloc[0] - 1.0)
-        cagr = self._cagr_from_prices(prices)
+        cagr = 0.0 if has_negative_price else self._cagr_from_prices(prices)
         elapsed_years = self._year_fraction(prices.index[0], prices.index[-1])
         incep = total_return if elapsed_years < 1.0 else cagr
 
         drawdown = self._drawdown_series(obj)
         max_drawdown = float(drawdown.min()) if not drawdown.empty else float("nan")
         max_drawdown_duration = self._max_drawdown_duration(prices)
-        calmar = (
-            float(cagr / abs(max_drawdown))
-            if not np.isclose(max_drawdown, 0.0)
-            else float("nan")
-        )
+        if has_negative_price:
+            calmar = 0.0
+        else:
+            calmar = (
+                float(cagr / abs(max_drawdown))
+                if not np.isclose(max_drawdown, 0.0)
+                else float("nan")
+            )
 
         mtd, qtd, ytd = self._month_quarter_year_to_date(periods)
 

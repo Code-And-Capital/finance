@@ -10,7 +10,6 @@ black
 black[jupyter]
 plotly
 nbformat
-ffn
 pyprind
 tqdm
 geopy

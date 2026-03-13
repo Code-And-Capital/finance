@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any, Callable
 
 from bt.algos.weighting.core import WeightAlgo

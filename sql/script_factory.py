@@ -1,7 +1,5 @@
 """Stateful SQL query construction and rendering utilities."""
 
-from __future__ import annotations
-
 import re
 from datetime import date, datetime
 from pathlib import Path

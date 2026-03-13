@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Price query helpers for raw long-format adjusted close time series."""
 
 from typing import Optional, Sequence

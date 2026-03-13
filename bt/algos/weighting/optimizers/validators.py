@@ -1,7 +1,5 @@
 """Validation helpers for optimization inputs."""
 
-from __future__ import annotations
-
 import pandas as pd
 from utils.math_utils import validate_non_negative, validate_real
 

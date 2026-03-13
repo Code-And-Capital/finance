@@ -23,7 +23,8 @@ class SelectSector(SelectAll):
     -----
     - Reads sector labels from the configured sector source
       (``pandas.DataFrame``), where index is dates and columns are tickers.
-    - Uses the row at ``target.now`` to determine current sector labels.
+    - Uses the row at the current market-data timestamp to determine current
+      sector labels.
     - Candidate pool source is ``target.temp['selected']``.
       If missing/empty, candidates are first populated via :class:`SelectAll`.
     - Output order follows the candidate pool order.

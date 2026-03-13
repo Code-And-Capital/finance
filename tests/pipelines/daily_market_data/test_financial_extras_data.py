@@ -46,9 +46,10 @@ def test_eps_revisions_skip_write_when_duplicate_minus_date():
     pipeline.azure_data_source.read_sql_table = MagicMock(return_value=existing)
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
+    out = pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()
+    assert out.empty
 
 
 def test_earnings_surprises_run_write_to_azure_writes_table():
@@ -104,9 +105,10 @@ def test_earnings_surprises_skip_write_when_duplicate_minus_date():
     pipeline.azure_data_source.read_sql_table = MagicMock(return_value=existing)
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
+    out = pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()
+    assert out.empty
 
 
 def test_estimates_run_returns_three_dataframes():
@@ -196,6 +198,7 @@ def test_estimates_skip_write_when_duplicates_minus_date():
     )
     pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
 
-    pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
+    out = pipeline.run(write_to_azure=True, ticker_to_figi={"AAPL": "FIGI_AAPL"})
 
     pipeline.azure_data_source.write_sql_table.assert_not_called()
+    assert all(df.empty for df in out.values())

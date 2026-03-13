@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Holdings query helpers for index and LLM strategy portfolios."""
 
 from typing import Optional, Sequence

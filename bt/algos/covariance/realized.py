@@ -1,7 +1,5 @@
 """Forward-window covariance estimator wrappers."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import pandas as pd

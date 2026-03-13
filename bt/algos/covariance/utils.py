@@ -1,7 +1,5 @@
 """Utility algos for covariance transformations."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import pandas as pd

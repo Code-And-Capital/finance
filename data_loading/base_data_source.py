@@ -1,7 +1,5 @@
 """Base interface for reusable data-loading datasource classes."""
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 from typing import Dict, Sequence
 
@@ -14,7 +12,7 @@ class BaseDataSource(ABC):
     """Template method base class for data ingestion components.
 
     Subclasses implement:
-    - ``load``: fetch raw data from one or more sources.
+    - ``_load``: fetch raw data from one or more sources.
     - ``transform``: apply standard cleaning and normalization.
     - ``format``: store project-ready dataframe outputs in ``self.formatted_data``.
     """
@@ -25,10 +23,10 @@ class BaseDataSource(ABC):
         self.formatted_data: Dict[str, pd.DataFrame] = {}
 
     @abstractmethod
-    def load(self) -> pd.DataFrame:
+    def _load(self) -> pd.DataFrame:
         """Load raw data from source systems."""
         raise NotImplementedError(
-            "BaseDataSource.load() should be overwritten by subclasses."
+            "BaseDataSource._load() should be overwritten by subclasses."
         )
 
     @abstractmethod
@@ -51,15 +49,15 @@ class BaseDataSource(ABC):
         normalized = [str(f).strip().upper() for f in raw if str(f).strip()]
         return [f for f in normalized if f not in {"NAN", "NONE"}]
 
-    def run(self) -> pd.DataFrame:
+    def load(self) -> pd.DataFrame:
         """Run load+transform workflow and return transformed dataframe.
 
         Formatting is intentionally kept external so callers can decide when and
         how to materialize project-specific output shapes.
         """
         class_name = self.__class__.__name__
-        log(f"{class_name}: starting run()", type="info")
-        self.raw_data = self.load()
+        log(f"{class_name}: starting load()", type="info")
+        self.raw_data = self._load()
         log(f"{class_name}: loaded {len(self.raw_data)} raw rows", type="info")
         self.transformed_data = self.transform(self.raw_data)
         log(
@@ -67,5 +65,5 @@ class BaseDataSource(ABC):
             type="info",
         )
         self.formatted_data = {}
-        log(f"{class_name}: run() completed", type="info")
+        log(f"{class_name}: load() completed", type="info")
         return self.transformed_data

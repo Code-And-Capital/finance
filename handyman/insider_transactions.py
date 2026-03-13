@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Insider transaction query helpers."""
 
 from typing import Optional, Sequence

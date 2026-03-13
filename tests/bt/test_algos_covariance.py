@@ -1,9 +1,10 @@
-from __future__ import annotations
-
 from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
+
+pytest.importorskip("sklearn")
+
 from sklearn.covariance import EmpiricalCovariance as SklearnEmpiricalCovariance
 from sklearn.covariance import GraphicalLasso as SklearnGraphicalLasso
 from sklearn.covariance import MinCovDet, OAS, ledoit_wolf

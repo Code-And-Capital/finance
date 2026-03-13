@@ -1,7 +1,5 @@
 """Datasource for company metadata."""
 
-from __future__ import annotations
-
 from typing import Dict, Sequence
 
 import pandas as pd
@@ -28,7 +26,7 @@ class CompanyInfoDataSource(BaseDataSource):
         self.end_date = end_date
         self.configs_path = configs_path
 
-    def load(self) -> pd.DataFrame:
+    def _load(self) -> pd.DataFrame:
         """Load company info data."""
         log(
             "CompanyInfoDataSource: loading info for "
@@ -83,7 +81,7 @@ class CompanyInfoDataSource(BaseDataSource):
     ) -> None:
         """Populate ``self.formatted_data`` with company info payload."""
         if self.transformed_data is None:
-            raise ValueError("run() must be called before format().")
+            raise ValueError("load() must be called before format().")
         log(
             f"CompanyInfoDataSource: formatting info rows={len(self.transformed_data)}",
             type="info",

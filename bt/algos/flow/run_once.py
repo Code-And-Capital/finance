@@ -16,7 +16,7 @@ class RunOnce(Algo):
     -----
     State is instance-local. Reusing the same instance across backtests
     preserves execution state.
-    If ``target.inow == 0`` (initial synthetic/bootstrapping row), this algo
+    If ``target.inow == 0`` (initial market-seeding row), this algo
     returns ``False`` and does not consume its one-shot run.
     """
 

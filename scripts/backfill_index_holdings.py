@@ -1,7 +1,5 @@
 """Backfill index holdings over a date range via holdings + price replay."""
 
-from __future__ import annotations
-
 from pathlib import Path
 import sys
 from typing import Any
@@ -14,18 +12,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import bt
 from bt.algos.flow import ClosePositionsAfterDates, RunAfterDate, RunOnce
 from bt.algos.portfolio_ops import Rebalance
 from bt.algos.selection import SelectAll, SelectWhere, SelectActive
 from bt.algos.weighting import WeightFixedSchedule
 from bt.core import Strategy
-from bt.engine import Backtest
 from sqlalchemy import types as satypes
 
-from connectors.azure_data_source import default_azure_data_source
-from data_loading.runner import Runner
+from bt.runner import Runner
 from utils.logging import log
+
+default_azure_data_source = None
 
 
 def build_index_holdings_backfill(
@@ -75,17 +72,11 @@ def build_index_holdings_backfill(
         end_date=end_ts.date().isoformat(),
         configs_path=configs_path,
     )
-    _ = runner.run()
+    _ = runner.load_data()
 
-    weights_wide = runner.holdings_data_source.formatted_data["weights_wide"]
-    in_portfolio = runner.holdings_data_source.formatted_data["in_portfolio_wide"]
     prices = runner.prices_data_source.formatted_data["prices_wide_full_history"].shift(
         1
     )
-    last_valid_date = runner.prices_data_source.formatted_data["last_valid_date"]
-
-    if weights_wide.empty or in_portfolio.empty or prices.empty:
-        raise ValueError("Runner outputs are empty; cannot build backfill holdings.")
 
     prior_dates = prices.index[prices.index < start_ts]
     output_dates = prices.index[prices.index > start_ts]
@@ -106,18 +97,18 @@ def build_index_holdings_backfill(
     strategy = Strategy(
         name="buy_and_hold",
         algos=[
-            ClosePositionsAfterDates(close_dates=last_valid_date),
+            ClosePositionsAfterDates("last_valid_date"),
             RunAfterDate(start_date_run),
             RunOnce(),
-            SelectWhere(in_portfolio),
+            SelectWhere("in_portfolio_wide"),
             SelectAll(),
             SelectActive(),
-            WeightFixedSchedule(weights=weights_wide),
+            WeightFixedSchedule("weights_wide"),
             Rebalance(),
         ],
     )
     log("Running backtest replay for holdings backfill.", type="info")
-    result = bt.run(Backtest(strategy=strategy, data=prices, integer_positions=False))
+    summary = runner.run_backtest(strategies=strategy)
 
     prices_long = prices.melt(
         ignore_index=False, var_name="FIGI", value_name="PRICE"
@@ -125,7 +116,7 @@ def build_index_holdings_backfill(
     prices_long["PRICE"] = np.round(prices_long["PRICE"], 2)
 
     weights_long = (
-        result.backtests["buy_and_hold"]
+        summary.backtests["buy_and_hold"]
         .security_weights.loc[start_date_output:]
         .melt(ignore_index=False, var_name="FIGI", value_name="WEIGHT")
         .reset_index(names="DATE")
@@ -145,8 +136,14 @@ def build_index_holdings_backfill(
     out = out.sort_values(["DATE", "TICKER"]).reset_index(drop=True)
 
     if write_to_azure:
-        engine = default_azure_data_source.get_engine(configs_path=configs_path)
-        default_azure_data_source.write_sql_table(
+        azure_data_source = default_azure_data_source
+        if azure_data_source is None:
+            from connectors.azure_data_source import (
+                default_azure_data_source as azure_data_source,
+            )
+
+        engine = azure_data_source.get_engine(configs_path=configs_path)
+        azure_data_source.write_sql_table(
             table_name="holdings",
             engine=engine,
             df=out,

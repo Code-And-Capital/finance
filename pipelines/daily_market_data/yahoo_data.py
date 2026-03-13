@@ -1,7 +1,5 @@
 """Shared Yahoo-based pipeline primitives."""
 
-from __future__ import annotations
-
 import time
 from datetime import date as dt_date, datetime, timedelta
 from collections.abc import Iterable

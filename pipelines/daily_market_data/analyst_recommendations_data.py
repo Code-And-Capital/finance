@@ -1,7 +1,5 @@
 """Pipeline components for Yahoo analyst recommendations and upgrades/downgrades."""
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 
 import pandas as pd
@@ -46,7 +44,7 @@ class _BaseAnalystData(YahooData):
                 dataframe = dataframe_utils.ensure_datetime_column(dataframe, column)
         return dataframe
 
-    def _write_table(self, *, dataframe: pd.DataFrame, engine) -> None:
+    def _write_table(self, *, dataframe: pd.DataFrame, engine) -> pd.DataFrame:
         """Write one analyst table after dedupe-minus-date checks."""
         figi_values = self._extract_figi_values(dataframe)
         existing_df = self._load_existing_rows_for_figi(
@@ -66,7 +64,7 @@ class _BaseAnalystData(YahooData):
         )
         if rows_to_write.empty:
             log(f"Skipped {self.table_name} write: no new or changed rows detected.")
-            return
+            return rows_to_write
 
         rows_to_write = rows_to_write.copy()
         dtype_overrides: dict[str, satypes.TypeEngine] = {}
@@ -87,6 +85,7 @@ class _BaseAnalystData(YahooData):
             dtype_overrides=dtype_overrides,
         )
         log(f"Wrote {self.table_name} rows to Azure: {len(rows_to_write)}")
+        return rows_to_write
 
     def run(
         self,
@@ -118,7 +117,7 @@ class _BaseAnalystData(YahooData):
 
         if write_to_azure:
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            self._write_table(dataframe=dataframe, engine=engine)
+            return self._write_table(dataframe=dataframe, engine=engine)
 
         return dataframe
 

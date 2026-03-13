@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Callable
 from typing import Any
 
@@ -15,7 +13,8 @@ class Algo:
     An algo is a callable unit that receives a target object (typically a
     strategy) and returns ``True`` or ``False`` to indicate success / whether a
     condition was met. This class provides common helper methods for:
-    - target context resolution (``temp``, ``universe``, ``now``)
+    - target context resolution (``temp``, ``universe``, execution date)
+    - market-data timestamp resolution via ``target.last_day`` when available
     - wide-data row resolution at a timestamp
     - candidate-pool resolution via ``temp['selected']`` with fallback behavior
     - lightweight ticker filtering by current-row availability/sign
@@ -50,12 +49,34 @@ class Algo:
         return temp
 
     def _resolve_now(self, target: Any) -> pd.Timestamp | None:
-        """Return normalized ``target.now`` timestamp when valid."""
+        """Return normalized execution timestamp from ``target.now``."""
         try:
             raw_now = getattr(target, "now", None)
         except Exception:
             return None
         return coerce_timestamp_or_none(raw_now)
+
+    def _resolve_last_day(self, target: Any) -> pd.Timestamp | None:
+        """Return normalized prior-market timestamp from ``target.last_day``."""
+        try:
+            raw_last_day = getattr(target, "last_day", None)
+        except Exception:
+            return None
+        return coerce_timestamp_or_none(raw_last_day)
+
+    def _resolve_market_data_now(self, target: Any) -> pd.Timestamp | None:
+        """Return timestamp that algos should use for market-data reads.
+
+        In the current backtest lifecycle, algos execute pre-market on
+        ``target.now`` and must size off the prior close. ``target.last_day``
+        is therefore the preferred evaluation timestamp for market-data reads,
+        with ``target.now`` retained as a fallback for non-backtest or
+        partially initialized targets.
+        """
+        last_day = self._resolve_last_day(target)
+        if last_day is not None:
+            return last_day
+        return self._resolve_now(target)
 
     def _resolve_universe(self, target: Any) -> pd.DataFrame | None:
         """Return ``target.universe`` when available and DataFrame-like."""
@@ -67,11 +88,11 @@ class Algo:
             return None
         return universe
 
-    def _resolve_now_in_universe_or_none(
+    def _resolve_market_data_now_in_universe_or_none(
         self, target: Any, universe: pd.DataFrame
     ) -> pd.Timestamp | None:
-        """Return normalized ``target.now`` only when present in universe index."""
-        now = self._resolve_now(target)
+        """Return market-data timestamp only when present in universe index."""
+        now = self._resolve_market_data_now(target)
         if now is None:
             return None
         if now not in universe.index:
@@ -82,12 +103,12 @@ class Algo:
         self,
         target: Any,
     ) -> tuple[dict[str, Any], pd.DataFrame, pd.Timestamp] | None:
-        """Resolve ``(temp, universe, now)`` for typical algo execution."""
+        """Resolve ``(temp, universe, data_now)`` for market-data algos."""
         temp = self._resolve_temp(target)
         universe = self._resolve_universe(target)
         if temp is None or universe is None:
             return None
-        now = self._resolve_now_in_universe_or_none(target, universe)
+        now = self._resolve_market_data_now_in_universe_or_none(target, universe)
         if now is None:
             return None
         return temp, universe, now
@@ -96,7 +117,7 @@ class Algo:
         self,
         target: Any,
     ) -> tuple[dict[str, Any], pd.DataFrame, pd.Timestamp] | None:
-        """Resolve common ``temp``/``universe``/``now`` context."""
+        """Resolve common ``temp``/``universe``/market-data timestamp context."""
         return self._resolve_selection_context(target)
 
     def _resolve_wide_data_row_at_now(

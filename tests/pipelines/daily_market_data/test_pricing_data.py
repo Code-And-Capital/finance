@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -159,6 +157,72 @@ def test_run_write_to_azure_writes_prices():
     assert kwargs["table_name"] == "prices"
     assert kwargs["overwrite"] is False
     assert kwargs["df"].equals(result)
+
+
+def test_filter_rows_from_start_dates_keeps_only_rows_on_or_after_mapping():
+    dataframe = pd.DataFrame(
+        {
+            "DATE": [
+                pd.Timestamp("2024-01-01").date(),
+                pd.Timestamp("2024-01-02").date(),
+                pd.Timestamp("2024-01-01").date(),
+            ],
+            "TICKER": ["AAPL", "AAPL", "MSFT"],
+            "ADJ_CLOSE": [100.0, 101.0, 200.0],
+        }
+    )
+
+    result = PricingData._filter_rows_from_start_dates(
+        dataframe,
+        {"AAPL": pd.Timestamp("2024-01-02"), "MSFT": pd.Timestamp("2000-01-01")},
+    )
+
+    assert len(result) == 2
+    assert result["TICKER"].tolist() == ["AAPL", "MSFT"]
+    assert [str(value) for value in result["DATE"]] == ["2024-01-02", "2024-01-01"]
+
+
+def test_run_write_to_azure_filters_write_payload_using_start_date_mapping():
+    pipeline = PricingData(tickers=["AAPL", "SAP.DE"])
+    pipeline._resolve_client = MagicMock(
+        return_value=MagicMock(tickers=["AAPL", "SAP.DE"])
+    )
+    pipeline._fetch_max_dates = MagicMock(
+        return_value=pd.DataFrame(
+            {
+                "FIGI": ["FIGI_AAPL", "FIGI_SAP"],
+                "START_DATE": [
+                    pd.Timestamp("2024-01-01"),
+                    pd.Timestamp("2024-01-02"),
+                ],
+            }
+        )
+    )
+    pipeline._pull_generic = MagicMock(
+        return_value=pd.DataFrame(
+            {
+                "DATE": ["2024-01-02", "2024-01-03", "2024-01-02", "2024-01-03"],
+                "TICKER": ["AAPL", "AAPL", "SAP.DE", "SAP.DE"],
+                "ADJ_CLOSE": [100.0, 101.0, 200.0, 201.0],
+            }
+        )
+    )
+    pipeline.azure_data_source.get_engine = MagicMock(return_value=object())
+    pipeline.azure_data_source.write_sql_table = MagicMock(return_value=None)
+
+    result = pipeline.run(
+        use_start_date_mapping=True,
+        write_to_azure=True,
+        adjust_for_corporate_actions=False,
+        ticker_to_figi={"AAPL": "FIGI_AAPL", "SAP.DE": "FIGI_SAP"},
+    )
+
+    written_df = pipeline.azure_data_source.write_sql_table.call_args.kwargs["df"]
+    assert len(written_df) == 3
+    assert len(result) == 3
+    assert written_df.equals(result)
+    sap_dates = written_df.loc[written_df["TICKER"] == "SAP.DE", "DATE"]
+    assert [str(value) for value in sap_dates] == ["2024-01-03"]
 
 
 @patch(

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Company information query helpers."""
 
 from typing import Optional, Sequence

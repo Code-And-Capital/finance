@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any
 
 import pandas as pd
@@ -41,12 +39,12 @@ class SetFactor(Algo):
         )
 
     def __call__(self, target: Any) -> bool:
-        """Resolve factor row at ``target.now`` and write it into ``temp``."""
+        """Resolve factor row at the current market-data timestamp."""
         temp = self._resolve_temp(target)
         if temp is None:
             return False
 
-        now = self._resolve_now(target)
+        now = self._resolve_market_data_now(target)
         if now is None:
             return False
 

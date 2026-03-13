@@ -1,7 +1,5 @@
 """Stateful Selenium data source for downloading files from web pages."""
 
-from __future__ import annotations
-
 import time
 from pathlib import Path
 

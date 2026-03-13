@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any
 
 import numpy as np
@@ -19,7 +17,8 @@ class MovingAverage(Factor):
     Parameters
     ----------
     lag : pandas.DateOffset, optional
-        Time lag applied to ``target.now`` before evaluating the indicator.
+        Time lag applied to the evaluation timestamp before computing the
+        indicator.
     factor_key : str, optional
         Key used to store the computed cross-section in ``target.temp``.
     """
@@ -75,7 +74,7 @@ class SimpleMovingAverage(MovingAverage):
     measure : {"mean", "median"}, optional
         Aggregation function over the lookback window.
     lag : pandas.DateOffset, optional
-        Lag applied to ``target.now`` before evaluation.
+        Lag applied to the evaluation timestamp before computation.
     factor_key : str, optional
         Output key in ``target.temp``.
     """
@@ -119,7 +118,7 @@ class ExponentialWeightedMovingAverage(MovingAverage):
     half_life : float
         Positive half-life parameter expressed in periods.
     lag : pandas.DateOffset, optional
-        Lag applied to ``target.now`` before evaluation.
+        Lag applied to the evaluation timestamp before computation.
     factor_key : str, optional
         Output key in ``target.temp``.
     """
@@ -166,7 +165,7 @@ class KernelMovingAverage(MovingAverage):
         - 1: linear kernel
         - >1: increasingly recency-biased
     lag : pandas.DateOffset, optional
-        Lag applied to ``target.now`` before evaluation.
+        Lag applied to the evaluation timestamp before computation.
     factor_key : str, optional
         Output key in ``target.temp``.
     """

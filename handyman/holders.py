@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Holder query helpers for institutional and major holder datasets."""
 
 from typing import Optional, Sequence

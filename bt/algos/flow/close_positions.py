@@ -2,7 +2,7 @@ from typing import Iterable, Union
 
 import pandas as pd
 
-from bt.core.security import SecurityBase
+from bt.core.security import Security
 from bt.algos.core import Algo
 from utils.date_utils import coerce_timestamp
 from utils.dataframe_utils import normalize_date_series, one_column_frame_to_series
@@ -75,8 +75,7 @@ class ClosePositionsAfterDates(Algo):
         self._candidate_security_names = tuple(
             name
             for name in name_set
-            if name in self._close_index_names
-            and isinstance(children[name], SecurityBase)
+            if name in self._close_index_names and isinstance(children[name], Security)
         )
 
     def __call__(self, target) -> bool:
@@ -107,10 +106,7 @@ class ClosePositionsAfterDates(Algo):
         closing_now = close_dates_series.loc[sec_names] <= now_ts
         names_to_close = list(closing_now[closing_now].index)
         for sec_name in names_to_close:
-            target.close(sec_name, update=False)
+            target.close(sec_name)
             target.perm["closed"].add(sec_name)
-
-        if names_to_close:
-            target.root.update(target.now)
 
         return True

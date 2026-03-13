@@ -50,7 +50,7 @@ class Rebalance(Algo):
         else:
             return False
 
-        base = target.value
+        base = target._value
 
         cash_fraction_raw = temp.get("cash", 0.0)
         try:
@@ -66,16 +66,13 @@ class Rebalance(Algo):
             if cname in targets:
                 continue
 
-            v = child.value
+            v = child._value
             if v != 0.0 and not np.isnan(v):
-                target.close(cname, update=False)
+                target.close(cname)
 
         # Apply target allocations.
         for child_name, weight in targets.items():
-            target.rebalance(weight, child=child_name, base=base, update=False)
-
-        # Propagate tree state once after all child operations.
-        target.root.update(target.now)
+            target.rebalance(weight, child=child_name, base=base)
 
         return True
 
@@ -135,7 +132,7 @@ class RebalanceOverTime(Algo):
             tgt: dict[str, float] = {}
             for cname, target_weight in self._weights.items():
                 current_weight = (
-                    target.children[cname].weight if cname in target.children else 0.0
+                    target.children[cname]._weight if cname in target.children else 0.0
                 )
                 delta = (target_weight - current_weight) / self._days_left
                 tgt[cname] = current_weight + delta

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """OpenFIGI API data source client."""
 
 import time

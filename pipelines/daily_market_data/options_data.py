@@ -1,7 +1,5 @@
 """Pipeline component for pulling Yahoo options-chain data."""
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 
 import pandas as pd
@@ -84,6 +82,7 @@ class OptionsData(YahooData):
             )
             if rows_to_write.empty:
                 log("Skipped options write: no new or changed rows detected.")
+                return rows_to_write
             else:
                 rows_to_write = rows_to_write.copy()
                 for column in ["DATE", "LASTTRADEDATE", "EXPIRATION"]:
@@ -107,5 +106,6 @@ class OptionsData(YahooData):
                     },
                 )
                 log(f"Wrote options rows to Azure: {len(rows_to_write)}")
+                return rows_to_write
 
         return dataframe

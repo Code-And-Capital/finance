@@ -1,7 +1,5 @@
 """Pipeline component for pulling daily pricing data from Yahoo."""
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 from datetime import date
 
@@ -117,6 +115,42 @@ class PricingData(YahooData):
                 eligible[str(ticker)] = start_date
 
         return eligible, skipped
+
+    @staticmethod
+    def _filter_rows_from_start_dates(
+        dataframe: pd.DataFrame,
+        start_date_mapping: dict[str, pd.Timestamp] | None,
+    ) -> pd.DataFrame:
+        """Keep only rows on or after each ticker's mapped start date."""
+        if (
+            dataframe.empty
+            or not start_date_mapping
+            or "TICKER" not in dataframe.columns
+            or "DATE" not in dataframe.columns
+        ):
+            return dataframe
+
+        normalized_mapping = {
+            str(ticker).strip().upper(): pd.Timestamp(start_date).date()
+            for ticker, start_date in start_date_mapping.items()
+            if str(ticker).strip()
+        }
+        if not normalized_mapping:
+            return dataframe
+
+        out = dataframe.copy()
+        out["TICKER"] = out["TICKER"].astype(str).str.strip().str.upper()
+        row_start_dates = out["TICKER"].map(normalized_mapping)
+        row_dates = pd.to_datetime(out["DATE"], errors="coerce").dt.date
+        keep_mask = row_start_dates.isna() | row_dates.ge(row_start_dates)
+        filtered = out.loc[keep_mask].reset_index(drop=True)
+        dropped = len(out) - len(filtered)
+        if dropped > 0:
+            log(
+                "Filtered pricing rows below start-date mapping before write: "
+                f"{dropped} dropped, {len(filtered)} remaining"
+            )
+        return filtered
 
     @staticmethod
     def _coerce_date_only(df: pd.DataFrame, column: str = "DATE") -> pd.DataFrame:
@@ -319,17 +353,22 @@ class PricingData(YahooData):
         else:
             log("Pricing pull returned an empty dataframe", type="warning")
 
+        write_payload = dataframe
         if write_to_azure:
+            write_payload = self._filter_rows_from_start_dates(
+                dataframe,
+                start_date_mapping,
+            )
             engine = self.azure_data_source.get_engine(configs_path=configs_path)
             self.azure_data_source.write_sql_table(
                 engine=engine,
                 table_name="prices",
                 overwrite=False,
-                df=dataframe,
+                df=write_payload,
             )
-            log(f"Wrote pricing rows to Azure: {len(dataframe)}")
+            log(f"Wrote pricing rows to Azure: {len(write_payload)}")
             if adjust_for_corporate_actions:
-                adjusted_figis = self._find_adjusted_figis(dataframe)
+                adjusted_figis = self._find_adjusted_figis(write_payload)
                 if adjusted_figis and start_date_mapping is not None:
                     cutoff = pd.Timestamp("2000-01-01")
                     existing_figis = {
@@ -360,7 +399,7 @@ class PricingData(YahooData):
                         ticker_to_figi=ticker_to_figi,
                     )
 
-        return dataframe
+        return write_payload
 
 
 class AnalystPriceTargetsData(YahooData):
@@ -428,6 +467,7 @@ class AnalystPriceTargetsData(YahooData):
                 log(
                     "Skipped analyst price target write: no new or changed rows detected."
                 )
+                return rows_to_write
             else:
                 rows_to_write = rows_to_write.copy()
                 rows_to_write["DATE"] = (
@@ -443,5 +483,6 @@ class AnalystPriceTargetsData(YahooData):
                     dtype_overrides={"DATE": satypes.Date()},
                 )
                 log(f"Wrote analyst price target rows to Azure: {len(rows_to_write)}")
+                return rows_to_write
 
         return dataframe

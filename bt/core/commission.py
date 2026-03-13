@@ -10,8 +10,6 @@ where:
 - returned ``fee`` is a non-negative cash amount
 """
 
-from __future__ import annotations
-
 
 def zero_commission(quantity: float, price: float) -> float:
     """Return zero transaction fee.
@@ -46,7 +44,7 @@ def quantity_tiered_commission(quantity: float, price: float) -> float:
     quantity : float
         Signed trade size in units.
     price : float
-        Per-unit execution price. Included for interface compatibility and not
+        Per-unit execution price. Accepted by the commission interface and not
         used by this function.
 
     Returns
@@ -94,7 +92,7 @@ def fixed_per_trade_commission(
     quantity : float
         Signed trade size in units.
     price : float
-        Per-unit execution price. Included for interface compatibility and not
+        Per-unit execution price. Accepted by the commission interface and not
         used by this function.
     fixed_fee : float, optional
         Flat fee charged for every non-zero trade.
@@ -123,7 +121,7 @@ def per_share_commission(
     quantity : float
         Signed trade size in units.
     price : float
-        Per-unit execution price. Included for interface compatibility and not
+        Per-unit execution price. Accepted by the commission interface and not
         used by this function.
     per_share_fee : float, optional
         Fee charged per traded unit.
@@ -151,7 +149,7 @@ def per_share_with_min_max_commission(
     quantity : float
         Signed trade size in units.
     price : float
-        Per-unit execution price. Included for interface compatibility and not
+        Per-unit execution price. Accepted by the commission interface and not
         used by this function.
     per_share_fee : float, optional
         Fee charged per traded unit.

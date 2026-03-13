@@ -184,10 +184,10 @@ class LimitBenchmarkDeviation(WeightAlgo):
     """Limit target-weight deviation from benchmark weights.
 
     This modifier constrains ``target.temp['weights']`` to stay within
-    ``±limit`` around benchmark weights at ``target.now``. It uses the same
-    recursive clip+normalize pattern as ``LimitDeltas`` and guarantees output
-    sums to 1 by relaxing the effective limit only when strict feasibility
-    requires it.
+    ``±limit`` around benchmark weights at the current market-data timestamp.
+    It uses the same recursive clip+normalize pattern as ``LimitDeltas`` and
+    guarantees output sums to 1 by relaxing the effective limit only when
+    strict feasibility requires it.
     """
 
     def __init__(self, limit: float, benchmark_weights: str | pd.DataFrame) -> None:
@@ -324,20 +324,21 @@ class LimitBenchmarkDeviation(WeightAlgo):
         temp = self._resolve_temp(target)
         if temp is None:
             return False
-        now = self._resolve_now(target)
-        if now is None:
+        execution_now = self._resolve_now(target)
+        data_now = self._resolve_market_data_now(target)
+        if data_now is None:
             return False
 
         target_weights = self._to_weight_dict(temp.get("weights", {}))
         if not target_weights:
-            self._write_weights(temp, {}, now=now, record_history=True)
+            self._write_weights(temp, {}, now=execution_now, record_history=True)
             return True
 
-        benchmark_weights = self._prepare_benchmark_inputs(target, temp, now)
+        benchmark_weights = self._prepare_benchmark_inputs(target, temp, data_now)
         if benchmark_weights is None:
             return False
         if not benchmark_weights:
-            self._write_weights(temp, {}, now=now, record_history=True)
+            self._write_weights(temp, {}, now=execution_now, record_history=True)
             return True
 
         expanded_target = {
@@ -345,5 +346,5 @@ class LimitBenchmarkDeviation(WeightAlgo):
             for name in benchmark_weights.keys()
         }
         adjusted = self._limit_deviation(benchmark_weights, expanded_target)
-        self._write_weights(temp, adjusted, now=now, record_history=True)
+        self._write_weights(temp, adjusted, now=execution_now, record_history=True)
         return True

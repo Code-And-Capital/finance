@@ -1,7 +1,5 @@
 """Grouped analytics across multiple price series."""
 
-from __future__ import annotations
-
 from typing import Iterable, Union
 
 import pandas as pd

@@ -1,7 +1,5 @@
 """Pipeline component for pulling Yahoo insider transaction data."""
 
-from __future__ import annotations
-
 from collections.abc import Iterable
 
 import pandas as pd
@@ -79,6 +77,7 @@ class InsiderTransactionsData(YahooData):
                 log(
                     "Skipped insider transactions write: no new or changed rows detected."
                 )
+                return rows_to_write
             else:
                 rows_to_write = rows_to_write.copy()
                 if "URL" in rows_to_write.columns:
@@ -106,5 +105,6 @@ class InsiderTransactionsData(YahooData):
                     },
                 )
                 log(f"Wrote insider transactions rows to Azure: {len(rows_to_write)}")
+                return rows_to_write
 
         return dataframe

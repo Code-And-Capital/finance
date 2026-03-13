@@ -1,7 +1,5 @@
 """Pipeline components for pulling Yahoo financial datasets."""
 
-from __future__ import annotations
-
 import time
 from collections.abc import Iterable
 
@@ -160,51 +158,56 @@ class FinancialData(YahooData):
             + ", ".join(f"{name}={len(df)}" for name, df in outputs.items())
         )
 
-        if write_to_azure:
-            engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            for key, dataframe in outputs.items():
-                table_name = self._TABLE_NAME_MAP[key]
-                filtered_dataframe = self._drop_all_null_payload_rows(dataframe)
-                dropped_count = len(dataframe) - len(filtered_dataframe)
-                if dropped_count > 0:
-                    log(
-                        f"Dropped {dropped_count} all-null payload rows for '{table_name}' "
-                        "(excluding DATE/TICKER/REPORT_DATE)."
-                    )
-                figi_values = self._extract_figi_values(filtered_dataframe)
-                existing_df = self._load_existing_rows_for_figi(
-                    engine=engine,
-                    table_name=table_name,
-                    figis=figi_values,
-                    log_context=table_name,
-                )
-                rows_to_write = self._filter_new_or_changed_rows(
-                    incoming_df=filtered_dataframe,
-                    existing_df=existing_df,
-                    exclude_columns={"DATE"},
-                )
-                log(
-                    f"Financial rows eligible for write to '{table_name}' after diff check: "
-                    f"{len(rows_to_write)}/{len(filtered_dataframe)}"
-                )
-                if rows_to_write.empty:
-                    log(
-                        f"Skipped write for '{table_name}': no new or changed rows detected."
-                    )
-                    continue
-                self.azure_data_source.write_sql_table(
-                    table_name=table_name,
-                    engine=engine,
-                    df=rows_to_write,
-                    overwrite=False,
-                    dtype_overrides={
-                        "DATE": satypes.Date(),
-                        "REPORT_DATE": satypes.Date(),
-                    },
-                )
-                log(f"Wrote {len(rows_to_write)} rows to Azure table '{table_name}'")
+        if not write_to_azure:
+            return outputs
 
-        return outputs
+        write_outputs: dict[str, pd.DataFrame] = {}
+        engine = self.azure_data_source.get_engine(configs_path=configs_path)
+        for key, dataframe in outputs.items():
+            table_name = self._TABLE_NAME_MAP[key]
+            filtered_dataframe = self._drop_all_null_payload_rows(dataframe)
+            dropped_count = len(dataframe) - len(filtered_dataframe)
+            if dropped_count > 0:
+                log(
+                    f"Dropped {dropped_count} all-null payload rows for '{table_name}' "
+                    "(excluding DATE/TICKER/REPORT_DATE)."
+                )
+            figi_values = self._extract_figi_values(filtered_dataframe)
+            existing_df = self._load_existing_rows_for_figi(
+                engine=engine,
+                table_name=table_name,
+                figis=figi_values,
+                log_context=table_name,
+            )
+            rows_to_write = self._filter_new_or_changed_rows(
+                incoming_df=filtered_dataframe,
+                existing_df=existing_df,
+                exclude_columns={"DATE"},
+            )
+            log(
+                f"Financial rows eligible for write to '{table_name}' after diff check: "
+                f"{len(rows_to_write)}/{len(filtered_dataframe)}"
+            )
+            if rows_to_write.empty:
+                log(
+                    f"Skipped write for '{table_name}': no new or changed rows detected."
+                )
+                write_outputs[key] = rows_to_write
+                continue
+            self.azure_data_source.write_sql_table(
+                table_name=table_name,
+                engine=engine,
+                df=rows_to_write,
+                overwrite=False,
+                dtype_overrides={
+                    "DATE": satypes.Date(),
+                    "REPORT_DATE": satypes.Date(),
+                },
+            )
+            log(f"Wrote {len(rows_to_write)} rows to Azure table '{table_name}'")
+            write_outputs[key] = rows_to_write
+
+        return write_outputs
 
 
 class EPSRevisionsData(YahooData):
@@ -268,6 +271,7 @@ class EPSRevisionsData(YahooData):
             )
             if rows_to_write.empty:
                 log("Skipped EPS revisions write: no new or changed rows detected.")
+                return rows_to_write
             else:
                 self.azure_data_source.write_sql_table(
                     table_name=self.table_name,
@@ -277,6 +281,7 @@ class EPSRevisionsData(YahooData):
                     dtype_overrides={"DATE": satypes.Date()},
                 )
                 log(f"Wrote EPS revisions rows to Azure: {len(rows_to_write)}")
+                return rows_to_write
 
         return dataframe
 
@@ -345,6 +350,7 @@ class EarningsSurprisesData(YahooData):
                 log(
                     "Skipped earnings surprises write: no new or changed rows detected."
                 )
+                return rows_to_write
             else:
                 self.azure_data_source.write_sql_table(
                     table_name=self.table_name,
@@ -357,6 +363,7 @@ class EarningsSurprisesData(YahooData):
                     },
                 )
                 log(f"Wrote earnings surprises rows to Azure: {len(rows_to_write)}")
+                return rows_to_write
 
         return dataframe
 
@@ -416,41 +423,44 @@ class EstimatesData(YahooData):
             for estimate_type, dataframe in outputs.items()
         }
 
-        if write_to_azure:
-            engine = self.azure_data_source.get_engine(configs_path=configs_path)
-            for estimate_type, dataframe in outputs.items():
-                table_name = self._TABLE_NAME_MAP[estimate_type]
-                figi_values = self._extract_figi_values(dataframe)
-                existing_df = self._load_existing_rows_for_figi(
-                    engine=engine,
-                    table_name=table_name,
-                    figis=figi_values,
-                    log_context=table_name,
-                )
-                rows_to_write = self._filter_new_or_changed_rows(
-                    incoming_df=dataframe,
-                    existing_df=existing_df,
-                    exclude_columns={"DATE"},
-                )
-                log(
-                    f"{estimate_type} estimates rows eligible for write after diff check: "
-                    f"{len(rows_to_write)}/{len(dataframe)}"
-                )
-                if rows_to_write.empty:
-                    log(
-                        f"Skipped {estimate_type} estimates write: no new or changed rows detected."
-                    )
-                    continue
+        if not write_to_azure:
+            return outputs
 
-                self.azure_data_source.write_sql_table(
-                    table_name=table_name,
-                    engine=engine,
-                    df=rows_to_write,
-                    overwrite=False,
-                    dtype_overrides={"DATE": satypes.Date()},
-                )
+        write_outputs: dict[str, pd.DataFrame] = {}
+        engine = self.azure_data_source.get_engine(configs_path=configs_path)
+        for estimate_type, dataframe in outputs.items():
+            table_name = self._TABLE_NAME_MAP[estimate_type]
+            figi_values = self._extract_figi_values(dataframe)
+            existing_df = self._load_existing_rows_for_figi(
+                engine=engine,
+                table_name=table_name,
+                figis=figi_values,
+                log_context=table_name,
+            )
+            rows_to_write = self._filter_new_or_changed_rows(
+                incoming_df=dataframe,
+                existing_df=existing_df,
+                exclude_columns={"DATE"},
+            )
+            log(
+                f"{estimate_type} estimates rows eligible for write after diff check: "
+                f"{len(rows_to_write)}/{len(dataframe)}"
+            )
+            if rows_to_write.empty:
                 log(
-                    f"Wrote {estimate_type} estimates rows to Azure: {len(rows_to_write)}"
+                    f"Skipped {estimate_type} estimates write: no new or changed rows detected."
                 )
+                write_outputs[estimate_type] = rows_to_write
+                continue
 
-        return outputs
+            self.azure_data_source.write_sql_table(
+                table_name=table_name,
+                engine=engine,
+                df=rows_to_write,
+                overwrite=False,
+                dtype_overrides={"DATE": satypes.Date()},
+            )
+            log(f"Wrote {estimate_type} estimates rows to Azure: {len(rows_to_write)}")
+            write_outputs[estimate_type] = rows_to_write
+
+        return write_outputs

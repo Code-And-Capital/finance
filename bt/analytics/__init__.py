@@ -2,5 +2,10 @@
 
 from .group import MultiSeriesPerformanceStats
 from .performance import TimeSeriesPerformanceStats
+from .backtest_report import BacktestSummary
 
-__all__ = ["TimeSeriesPerformanceStats", "MultiSeriesPerformanceStats"]
+__all__ = [
+    "TimeSeriesPerformanceStats",
+    "MultiSeriesPerformanceStats",
+    "BacktestSummary",
+]

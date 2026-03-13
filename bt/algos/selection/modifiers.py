@@ -60,7 +60,8 @@ class AddSecurity(Algo):
     tickers : list[str] | tuple[str, ...] | str
         Security names to add to the current candidate pool.
     include_negative : bool, optional
-        If ``True``, allow zero/negative prices at ``target.now``.
+        If ``True``, allow zero/negative prices at the current market-data
+        timestamp.
         If ``False`` (default), only strictly positive current prices are kept.
 
     Notes

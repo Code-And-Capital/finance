@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pandas as pd
 import pytest
 
@@ -9,7 +7,7 @@ from data_loading.index_data_source import IndexDataSource
 from data_loading.prices_data_source import PricesDataSource
 
 
-def test_holdings_data_source_run_returns_transformed_long(monkeypatch):
+def test_holdings_data_source_load_returns_transformed_long(monkeypatch):
     source_df = pd.DataFrame(
         {
             "DATE": ["2026-03-01", "2026-03-01"],
@@ -24,7 +22,7 @@ def test_holdings_data_source_run_returns_transformed_long(monkeypatch):
     )
 
     source = HoldingsDataSource(source="index", portfolio="S&P 500")
-    transformed = source.run()
+    transformed = source.load()
 
     assert list(transformed.columns) == ["DATE", "INDEX", "FIGI", "WEIGHT"]
     assert transformed["FIGI"].tolist() == ["AAPL", "MSFT"]
@@ -49,7 +47,7 @@ def test_holdings_data_source_passes_end_date(monkeypatch):
         portfolio="S&P 500",
         start_date="2026-01-01",
         end_date="2026-01-31",
-    ).run()
+    ).load()
 
     assert captured["start_date"] == "2026-01-01"
     assert captured["end_date"] == "2026-01-31"
@@ -79,7 +77,7 @@ def test_holdings_data_source_llm_source_uses_llm_loader(monkeypatch):
         portfolio=["LLM1"],
         start_date="2026-01-01",
         end_date="2026-01-31",
-    ).run()
+    ).load()
 
     assert len(transformed) == 1
     assert transformed["FIGI"].iloc[0] == "AAPL"
@@ -95,7 +93,7 @@ def test_holdings_data_source_validation_requires_portfolio():
         HoldingsDataSource(source="index", portfolio=None)
 
 
-def test_prices_data_source_run_returns_transformed_long(monkeypatch):
+def test_prices_data_source_load_returns_transformed_long(monkeypatch):
     prices_long = pd.DataFrame(
         {
             "DATE": ["2026-03-01", "2026-03-01", "2026-03-02", "2026-03-02"],
@@ -108,7 +106,7 @@ def test_prices_data_source_run_returns_transformed_long(monkeypatch):
         lambda **_: prices_long,
     )
 
-    transformed = PricesDataSource(figis=["AAPL", "MSFT"]).run()
+    transformed = PricesDataSource(figis=["AAPL", "MSFT"]).load()
 
     assert list(transformed.columns) == ["DATE", "FIGI", "ADJ_CLOSE"]
     assert len(transformed) == 4
@@ -135,7 +133,7 @@ def test_prices_data_source_logs_warning_for_missing_figi(monkeypatch):
 
     monkeypatch.setattr("data_loading.prices_data_source.log", fake_log)
 
-    _ = PricesDataSource(figis=["AAPL", "MSFT"]).run()
+    _ = PricesDataSource(figis=["AAPL", "MSFT"]).load()
     assert any("MSFT" in msg for msg in warnings)
 
 
@@ -155,7 +153,7 @@ def test_prices_data_source_passes_end_date(monkeypatch):
         figis=["AAPL"],
         start_date="2026-01-01",
         end_date="2026-01-31",
-    ).run()
+    ).load()
 
     assert captured["start_date"] == "2025-01-01"
     assert captured["end_date"] == "2026-01-31"
@@ -244,33 +242,6 @@ def test_prices_data_source_outputs_full_and_windowed_history():
     assert window_wide.loc[pd.Timestamp("2026-03-02"), "AAPL"] == 100.0
 
 
-def test_prices_data_source_plot_prices_builds_figure(monkeypatch):
-    called = {"show": 0}
-
-    def fake_show(self):  # noqa: ANN001
-        called["show"] += 1
-
-    monkeypatch.setattr("visualization.figure.Figure.show", fake_show)
-
-    source = PricesDataSource(figis=["AAPL", "MSFT"], start_date="2026-03-01")
-    long_df = pd.DataFrame(
-        {
-            "DATE": ["2026-03-01", "2026-03-01", "2026-03-02", "2026-03-02"],
-            "FIGI": ["AAPL", "MSFT", "AAPL", "MSFT"],
-            "ADJ_CLOSE": [100.0, 200.0, 101.0, 202.0],
-        }
-    )
-    source.transformed_data = source.transform(long_df)
-    source.format()
-
-    fig = source.plot_prices(figis=["AAPL"], title="Prices")
-    built = fig.build().fig
-    assert built is not None
-    assert len(built.data) == 1
-    assert built.data[0].name == "AAPL"
-    assert called["show"] == 1
-
-
 def test_holdings_data_source_format_returns_long_and_wide(monkeypatch):
     source_df = pd.DataFrame(
         {
@@ -285,7 +256,7 @@ def test_holdings_data_source_format_returns_long_and_wide(monkeypatch):
         lambda **_: source_df,
     )
     source = HoldingsDataSource(source="index", portfolio="S&P 500")
-    _ = source.run()
+    _ = source.load()
     source.format()
     formatted = source.formatted_data
 
@@ -312,7 +283,7 @@ def test_holdings_data_source_in_portfolio_wide_marks_zero_weight_as_false(monke
         lambda **_: source_df,
     )
     source = HoldingsDataSource(source="index", portfolio="S&P 500")
-    _ = source.run()
+    _ = source.load()
     source.format()
 
     in_portfolio = source.formatted_data["in_portfolio_wide"]
@@ -333,7 +304,7 @@ def test_holdings_data_source_format_reindexes_to_prices_dates(monkeypatch):
         lambda **_: source_df,
     )
     source = HoldingsDataSource(source="index", portfolio="S&P 500")
-    _ = source.run()
+    _ = source.load()
     target_dates = pd.to_datetime(["2026-03-01", "2026-03-02"])
     source.format(dates=target_dates)
 
@@ -357,7 +328,7 @@ def test_holdings_data_source_ffills_single_all_nan_gap_after_reindex(monkeypatc
         lambda **_: source_df,
     )
     source = HoldingsDataSource(source="index", portfolio="S&P 500")
-    _ = source.run()
+    _ = source.load()
     target_dates = pd.to_datetime(["2026-03-01", "2026-03-02", "2026-03-03"])
     source.format(dates=target_dates)
 
@@ -369,14 +340,14 @@ def test_holdings_data_source_ffills_single_all_nan_gap_after_reindex(monkeypatc
     assert bool(in_portfolio.loc[pd.Timestamp("2026-03-02"), "MSFT"]) is True
 
 
-def test_company_info_data_source_run_returns_transformed_info(monkeypatch):
+def test_company_info_data_source_load_returns_transformed_info(monkeypatch):
     info = pd.DataFrame({"DATE": ["2026-03-01"], "FIGI": ["aapl"], "NAME": ["Apple"]})
     monkeypatch.setattr(
         "data_loading.company_info_data_source.get_company_info",
         lambda **_: info,
     )
 
-    transformed = CompanyInfoDataSource(figis=["AAPL"]).run()
+    transformed = CompanyInfoDataSource(figis=["AAPL"]).load()
 
     assert list(transformed.columns) == ["DATE", "FIGI", "NAME"]
     assert transformed["FIGI"].iloc[0] == "AAPL"
@@ -396,7 +367,7 @@ def test_company_info_data_source_logs_warning_for_missing_figi(monkeypatch):
 
     monkeypatch.setattr("data_loading.company_info_data_source.log", fake_log)
 
-    _ = CompanyInfoDataSource(figis=["AAPL", "MSFT"]).run()
+    _ = CompanyInfoDataSource(figis=["AAPL", "MSFT"]).load()
     assert any("MSFT" in msg for msg in warnings)
 
 
@@ -416,7 +387,7 @@ def test_company_info_data_source_passes_end_date(monkeypatch):
         figis=["AAPL"],
         start_date="2026-01-01",
         end_date="2026-01-31",
-    ).run()
+    ).load()
 
     assert captured_info["start_date"] == "2026-01-01"
     assert captured_info["end_date"] == "2026-01-31"
@@ -439,7 +410,7 @@ def test_company_info_data_source_format_returns_company_info_payload(monkeypatc
     )
 
     source = CompanyInfoDataSource(figis=["AAPL"])
-    _ = source.run()
+    _ = source.load()
     source.format()
     formatted = source.formatted_data
 
@@ -467,7 +438,7 @@ def test_company_info_data_source_sector_wide_reindexes_and_ffills(monkeypatch):
     )
 
     source = CompanyInfoDataSource(figis=["AAPL"])
-    _ = source.run()
+    _ = source.load()
     source.format(
         dates=pd.to_datetime(["2026-03-01", "2026-03-02", "2026-03-03"]),
     )
@@ -505,7 +476,7 @@ def test_index_data_source_formats_returns(monkeypatch):
     )
 
     source = IndexDataSource(figis=["^GSPC", "^NDX"])
-    _ = source.run()
+    _ = source.load()
     source.format(dates=pd.to_datetime(["2026-03-01", "2026-03-02", "2026-03-03"]))
     formatted = source.formatted_data
 

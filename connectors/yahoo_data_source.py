@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Yahoo Finance data-loading client.
 
 This module provides a threaded client to fetch multiple Yahoo Finance datasets

@@ -1,7 +1,5 @@
 """Pipeline component for enriching securities with OpenFIGI mappings."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import pandas as pd

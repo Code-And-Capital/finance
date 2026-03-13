@@ -21,7 +21,8 @@ class SelectThese(SelectAll):
       If missing or empty, :class:`SelectAll` is run first.
     - Only configured tickers that are in the active candidate pool can be selected.
     - Returns ``False`` when ``target.temp`` is missing/not dict-like, universe
-      is missing/invalid, or ``target.now`` is missing/invalid/not in index.
+      is missing/invalid, or the current market-data timestamp is missing or
+      not in the universe index.
     """
 
     def __init__(
@@ -61,7 +62,7 @@ class SelectThese(SelectAll):
 
 
 class SelectWhere(SelectAll):
-    """Select names where a boolean signal is true at ``target.now``.
+    """Select names where a boolean signal is true at the market-data timestamp.
 
     Parameters
     ----------
@@ -74,7 +75,8 @@ class SelectWhere(SelectAll):
       If missing or empty, :class:`SelectAll` is run first.
     - Signal is applied only to names in the candidate pool.
     - Returns ``False`` when ``target.temp`` is missing/not dict-like, universe
-      is missing/invalid, or ``target.now`` is missing/invalid/not in index.
+      is missing/invalid, or the current market-data timestamp is missing or
+      not in index.
     """
 
     def __init__(

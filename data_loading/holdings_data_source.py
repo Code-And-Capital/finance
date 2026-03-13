@@ -1,7 +1,5 @@
 """Datasource for index holdings data."""
 
-from __future__ import annotations
-
 from typing import Dict, Literal, Sequence
 
 import pandas as pd
@@ -36,7 +34,7 @@ class HoldingsDataSource(BaseDataSource):
         if self.portfolio is None:
             raise ValueError("portfolio must be provided.")
 
-    def load(self) -> pd.DataFrame:
+    def _load(self) -> pd.DataFrame:
         """Load holdings in long format from selected source."""
         log(
             "HoldingsDataSource: loading "
@@ -110,7 +108,7 @@ class HoldingsDataSource(BaseDataSource):
     def format(self, dates: Sequence[pd.Timestamp] | pd.Index | None = None) -> None:
         """Populate ``self.formatted_data`` with long + wide holdings representations."""
         if self.transformed_data is None:
-            raise ValueError("run() must be called before format().")
+            raise ValueError("load() must be called before format().")
         data = self.transformed_data
         log(
             f"HoldingsDataSource: formatting {len(data)} transformed rows",

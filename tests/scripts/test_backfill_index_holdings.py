@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from types import SimpleNamespace
 
 import pandas as pd
@@ -7,11 +5,15 @@ import pytest
 from sqlalchemy import types as satypes
 
 import scripts.backfill_index_holdings as backfill_script
+from bt.core import Strategy
 
 
 class _DummyRunner:
     last_init: dict | None = None
     payload: dict | None = None
+    load_called = False
+    last_strategy: Strategy | None = None
+    last_run_kwargs: dict | None = None
 
     def __init__(
         self,
@@ -28,9 +30,10 @@ class _DummyRunner:
             "configs_path": configs_path,
         }
 
-    def run(self):
+    def load_data(self):
         if self.__class__.payload is None:
             raise RuntimeError("payload must be set for _DummyRunner")
+        self.__class__.load_called = True
         payload = self.__class__.payload
         self.holdings_data_source = SimpleNamespace(
             formatted_data=payload["holdings_formatted_data"]
@@ -43,24 +46,17 @@ class _DummyRunner:
             "prices": self.prices_data_source,
         }
 
-
-class _DummyStrategy:
-    last_instance: "_DummyStrategy | None" = None
-
-    def __init__(self, *, name, algos) -> None:
-        self.name = name
-        self.algos = algos
-        self.__class__.last_instance = self
-
-
-class _DummyBacktest:
-    last_instance: "_DummyBacktest | None" = None
-
-    def __init__(self, *, strategy, data, integer_positions=False) -> None:
-        self.strategy = strategy
-        self.data = data
-        self.integer_positions = integer_positions
-        self.__class__.last_instance = self
+    def run_backtest(self, *, strategies):
+        self.__class__.last_strategy = strategies
+        self.__class__.last_run_kwargs = {"strategies": strategies}
+        payload = self.__class__.payload
+        return SimpleNamespace(
+            backtests={
+                "buy_and_hold": SimpleNamespace(
+                    security_weights=payload["security_weights"]
+                )
+            }
+        )
 
 
 def _build_runner_payload() -> dict:
@@ -74,7 +70,6 @@ def _build_runner_payload() -> dict:
             pd.Timestamp("2026-03-08"),
         ]
     )
-    figis = ["F1", "F2"]
 
     weights_wide = pd.DataFrame(
         {"F1": [0.6, 0.6, 0.5, 0.5], "F2": [0.4, 0.4, 0.5, 0.5]},
@@ -129,29 +124,6 @@ def _build_runner_payload() -> dict:
         ]
     )
 
-    last_valid_date = pd.Series(
-        {"F1": pd.Timestamp("2026-03-07"), "F2": pd.Timestamp("2026-03-08")}
-    )
-
-    return {
-        "holdings_formatted_data": {
-            "weights_wide": weights_wide,
-            "in_portfolio_wide": in_portfolio_wide,
-            "holdings_long": holdings_long,
-        },
-        "prices_formatted_data": {
-            "prices_wide_full_history": prices_wide_full_history,
-            "last_valid_date": last_valid_date,
-        },
-    }
-
-
-def test_build_index_holdings_backfill_runner_flow_and_start_date_anchor(monkeypatch):
-    _DummyRunner.payload = _build_runner_payload()
-    monkeypatch.setattr(backfill_script, "Runner", _DummyRunner)
-    monkeypatch.setattr(backfill_script, "Strategy", _DummyStrategy)
-    monkeypatch.setattr(backfill_script, "Backtest", _DummyBacktest)
-
     security_weights = pd.DataFrame(
         {
             "F1": [0.6, 0.5, 0.5, 0.4],
@@ -167,14 +139,29 @@ def test_build_index_holdings_backfill_runner_flow_and_start_date_anchor(monkeyp
         ),
     )
 
-    def _dummy_run(_backtest):
-        return SimpleNamespace(
-            backtests={
-                "buy_and_hold": SimpleNamespace(security_weights=security_weights)
-            }
-        )
+    last_valid_date = pd.Series(
+        {"F1": pd.Timestamp("2026-03-07"), "F2": pd.Timestamp("2026-03-08")}
+    )
 
-    monkeypatch.setattr(backfill_script.bt, "run", _dummy_run)
+    return {
+        "holdings_formatted_data": {
+            "weights_wide": weights_wide,
+            "in_portfolio_wide": in_portfolio_wide,
+            "holdings_long": holdings_long,
+        },
+        "prices_formatted_data": {
+            "prices_wide_full_history": prices_wide_full_history,
+            "last_valid_date": last_valid_date,
+        },
+        "security_weights": security_weights,
+    }
+
+
+def test_build_index_holdings_backfill_uses_runner_load_and_run_backtest(monkeypatch):
+    _DummyRunner.payload = _build_runner_payload()
+    _DummyRunner.load_called = False
+    _DummyRunner.last_strategy = None
+    monkeypatch.setattr(backfill_script, "Runner", _DummyRunner)
 
     out = backfill_script.build_index_holdings_backfill(
         index_name="S&P 500",
@@ -189,9 +176,11 @@ def test_build_index_holdings_backfill_runner_flow_and_start_date_anchor(monkeyp
         "end_date": "2026-03-08",
         "configs_path": None,
     }
-    assert _DummyStrategy.last_instance is not None
+    assert _DummyRunner.load_called is True
+    assert isinstance(_DummyRunner.last_strategy, Strategy)
+    assert _DummyRunner.last_strategy.name == "buy_and_hold"
     algo_names = [
-        type(algo_obj).__name__ for algo_obj in _DummyStrategy.last_instance.algos
+        type(algo).__name__ for algo in _DummyRunner.last_strategy.stack.algos
     ]
     assert algo_names == [
         "ClosePositionsAfterDates",
@@ -204,7 +193,6 @@ def test_build_index_holdings_backfill_runner_flow_and_start_date_anchor(monkeyp
         "Rebalance",
     ]
 
-    # start_date_output should be 2026-03-06; one zero-weight row is filtered out.
     assert out["DATE"].min() == pd.Timestamp("2026-03-06")
     assert set(out["FIGI"]) == {"F1", "F2"}
     assert "OLD1" not in set(out["TICKER"])
@@ -241,39 +229,34 @@ def test_build_index_holdings_backfill_rejects_insufficient_price_history(monkey
 def test_build_index_holdings_backfill_writes_to_azure(monkeypatch):
     _DummyRunner.payload = _build_runner_payload()
     monkeypatch.setattr(backfill_script, "Runner", _DummyRunner)
-    monkeypatch.setattr(backfill_script, "Strategy", _DummyStrategy)
-    monkeypatch.setattr(backfill_script, "Backtest", _DummyBacktest)
 
-    security_weights = pd.DataFrame(
-        {"F1": [0.5], "F2": [0.5]},
-        index=pd.DatetimeIndex([pd.Timestamp("2026-03-06")]),
-    )
+    write_calls: list[dict] = []
+
+    class _DummyAzureDataSource:
+        def get_engine(self, configs_path=None):
+            return "ENGINE"
+
+        def write_sql_table(
+            self,
+            *,
+            table_name,
+            engine,
+            df,
+            overwrite,
+            dtype_overrides,
+        ):
+            write_calls.append(
+                {
+                    "table_name": table_name,
+                    "engine": engine,
+                    "df": df.copy(),
+                    "overwrite": overwrite,
+                    "dtype_overrides": dtype_overrides,
+                }
+            )
+
     monkeypatch.setattr(
-        backfill_script.bt,
-        "run",
-        lambda _backtest: SimpleNamespace(
-            backtests={
-                "buy_and_hold": SimpleNamespace(security_weights=security_weights)
-            }
-        ),
-    )
-
-    calls: dict = {}
-
-    def _get_engine(*, configs_path=None):
-        calls["configs_path"] = configs_path
-        return "ENGINE"
-
-    def _write_sql_table(**kwargs):
-        calls["write"] = kwargs
-
-    monkeypatch.setattr(
-        backfill_script.default_azure_data_source, "get_engine", _get_engine
-    )
-    monkeypatch.setattr(
-        backfill_script.default_azure_data_source,
-        "write_sql_table",
-        _write_sql_table,
+        backfill_script, "default_azure_data_source", _DummyAzureDataSource()
     )
 
     out = backfill_script.build_index_holdings_backfill(
@@ -281,12 +264,14 @@ def test_build_index_holdings_backfill_writes_to_azure(monkeypatch):
         start_date="2026-03-05",
         end_date="2026-03-08",
         write_to_azure=True,
-        configs_path="cfg/path.toml",
+        configs_path="config.yml",
     )
 
-    assert len(out) > 0
-    assert calls["configs_path"] == "cfg/path.toml"
-    assert calls["write"]["table_name"] == "holdings"
-    assert calls["write"]["engine"] == "ENGINE"
-    assert calls["write"]["overwrite"] is False
-    assert isinstance(calls["write"]["dtype_overrides"]["DATE"], satypes.Date)
+    assert len(write_calls) == 1
+    call = write_calls[0]
+    assert call["table_name"] == "holdings"
+    assert call["engine"] == "ENGINE"
+    assert call["overwrite"] is False
+    assert list(call["dtype_overrides"]) == ["DATE"]
+    assert isinstance(call["dtype_overrides"]["DATE"], satypes.Date)
+    pd.testing.assert_frame_equal(call["df"].reset_index(drop=True), out)
