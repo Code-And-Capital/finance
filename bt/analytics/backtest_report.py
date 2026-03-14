@@ -485,6 +485,59 @@ class BacktestSummary(MultiSeriesPerformanceStats):
         fig.show()
         return fig
 
+    def plot_factor_coverage(
+        self,
+        signal: str,
+        factor: str,
+        backtest: Union[str, int] = 0,
+        *,
+        height: int = 500,
+    ) -> Figure:
+        """Plot underlying factor coverage exposed by a signal for a backtest."""
+        key = self._get_backtest(backtest)
+        algo = self.backtests[key].strategy.algos.get(signal)
+        if algo is None:
+            raise KeyError(f"Signal '{signal}' not found in backtest '{key}'.")
+
+        factor_coverage = getattr(algo, "factor_coverage", None)
+        if not isinstance(factor_coverage, dict):
+            raise TypeError(
+                f"Signal '{signal}' factor_coverage must be a dict[str, pandas.DataFrame]."
+            )
+        coverage = factor_coverage.get(factor)
+        if not isinstance(coverage, pd.DataFrame):
+            raise KeyError(
+                f"Factor '{factor}' not found in signal '{signal}' for backtest '{key}'."
+            )
+        if coverage.empty:
+            raise ValueError(
+                f"Factor '{factor}' coverage for signal '{signal}' are empty; nothing to plot."
+            )
+
+        plot_coverage = coverage.loc[:, ["PERCENTAGE", "MARKET_PERCENTAGE"]].copy()
+        factor_display_name = factor.replace("_", " ").title()
+
+        line = Line(plot_coverage)
+        line.create(x="index", y=list(plot_coverage.columns), width=2, mode="lines")
+        line.quick_styling(
+            x_title="Date",
+            y_title="Coverage (%)",
+            selector_buttons=False,
+            rangeslider=False,
+        )
+        line.yaxis(tickformat=".0%", start=0.0, end=1.0)
+        line.legend(show=True)
+
+        fig = Figure(rows=1, cols=1)
+        fig.add_chart(line, row=1, col=1)
+        fig.layout(
+            title=f"Factor Coverage - {signal} {factor_display_name} - {key}",
+            height=height,
+            showlegend=True,
+        )
+        fig.show()
+        return fig
+
     def plot_signal_state_counts(
         self,
         signal: str,

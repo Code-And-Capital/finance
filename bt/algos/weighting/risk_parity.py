@@ -103,15 +103,11 @@ class WeightRiskParity(WeightAlgo):
 
     Inputs expected in ``target.temp``:
     - ``selected``: names to allocate
-    - covariance at ``self.covariance_key`` (default ``covariance``)
+    - ``covariance``: covariance matrix
     """
 
-    def __init__(
-        self,
-        covariance_key: str = "covariance",
-    ) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.covariance_key = covariance_key
         self.optimizer = RiskParityOptimizer()
 
     def __call__(self, target: Any) -> bool:
@@ -132,7 +128,7 @@ class WeightRiskParity(WeightAlgo):
             self._write_weights(temp, weights, now=now, record_history=True)
             return True
 
-        covariance = temp.get(self.covariance_key)
+        covariance = temp.get("covariance")
         self.optimizer.set_problem(covariance, selected_raw)
         result = self.optimizer.solve_problem()
         weights = result["weights"]

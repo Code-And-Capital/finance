@@ -51,6 +51,7 @@ def test_price_crossover_signal_uses_last_day_prices():
     assert strategy.temp["moving_average"]["A"] == pytest.approx(105.0)
     assert strategy.temp["moving_average"]["B"] == pytest.approx(95.0)
     assert algo.factor_stats["moving_average"] is algo.ma_algo.stats
+    assert algo.factor_coverage["moving_average"] is algo.ma_algo.coverage_df
     assert bool(algo.history.loc[prices.index[1], "A"]) is True
     assert bool(algo.history.loc[prices.index[1], "B"]) is False
 
@@ -108,6 +109,8 @@ def test_dual_ma_crossover_signal_selects_short_over_long():
     assert strategy.temp["selected"] == ["A"]
     assert algo.factor_stats["short"] is algo.short_ma_algo.stats
     assert algo.factor_stats["long"] is algo.long_ma_algo.stats
+    assert algo.factor_coverage["short"] is algo.short_ma_algo.coverage_df
+    assert algo.factor_coverage["long"] is algo.long_ma_algo.coverage_df
 
 
 def test_dual_ma_crossover_signal_validates_ma_types():
@@ -158,8 +161,9 @@ def test_momentum_signal_uses_ranking_algo_to_choose_top_names():
     assert strategy.temp["total_return"]["B"] == pytest.approx(-0.01)
     assert strategy.temp["total_return"]["C"] == pytest.approx(0.05)
     assert algo.factor_stats["total_return"] is algo.total_return_algo.stats
+    assert algo.factor_coverage["total_return"] is algo.total_return_algo.coverage_df
     assert (
-        int(algo.factor_stats["total_return"].loc[prices.index[1], "TOTAL_COVERED"])
+        int(algo.total_return_algo.coverage_df.loc[prices.index[1], "TOTAL_NUMBER"])
         == 3
     )
 

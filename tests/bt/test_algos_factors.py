@@ -146,8 +146,13 @@ def test_kernel_moving_average_validates_inputs():
 
 def test_total_return_uses_last_day_and_updates_stats():
     prices = _prices(A=[100.0, 110.0, 120.0], B=[100.0, 95.0, 90.0])
+    weights_wide = pd.DataFrame(
+        {"A": [0.4, 0.4, 0.4], "B": [0.6, 0.6, 0.6]},
+        index=prices.index,
+    )
     strategy = _strategy_context(prices, now_idx=2, last_day_idx=1)
     strategy.temp["selected"] = ["A", "B"]
+    strategy._setup_kwargs["weights_wide"] = weights_wide
 
     algo = TotalReturn(lookback=pd.DateOffset(days=1))
     assert algo(strategy)
@@ -155,8 +160,10 @@ def test_total_return_uses_last_day_and_updates_stats():
     total_return = strategy.temp["total_return"]
     assert total_return["A"] == pytest.approx(0.1)
     assert total_return["B"] == pytest.approx(-0.05)
-    stats_row = algo.stats.loc[prices.index[1]]
-    assert int(stats_row["TOTAL_COVERED"]) == 2
+    coverage_row = algo.coverage_df.loc[prices.index[1]]
+    assert int(coverage_row["TOTAL_NUMBER"]) == 2
+    assert coverage_row["PERCENTAGE"] == pytest.approx(1.0)
+    assert coverage_row["MARKET_PERCENTAGE"] == pytest.approx(1.0)
 
 
 def test_total_return_can_store_standardized_cross_section():
@@ -172,6 +179,29 @@ def test_total_return_can_store_standardized_cross_section():
     assert total_return["B"] == pytest.approx(-1.0)
     stats_row = algo.stats.loc[prices.index[1]]
     assert stats_row["MEAN"] == pytest.approx(0.0)
+
+
+def test_total_return_tracks_missing_selected_names():
+    prices = _prices(A=[100.0, 110.0], B=[100.0, 110.0], C=[100.0, 100.0])
+    weights_wide = pd.DataFrame(
+        {"A": [0.2, 0.2], "B": [0.5, 0.5], "C": [0.3, 0.3]},
+        index=prices.index,
+    )
+    strategy = _strategy_context(prices, now_idx=1, last_day_idx=1)
+    strategy.temp["selected"] = ["A", "B", "C"]
+    strategy._setup_kwargs["weights_wide"] = weights_wide
+
+    class PartialFactor(TotalReturn):
+        def calculate_factor(self, temp, universe, now, selected):  # noqa: ANN001
+            return pd.Series({"A": 1.0, "C": 3.0})
+
+    algo = PartialFactor()
+    assert algo(strategy)
+
+    coverage_row = algo.coverage_df.loc[prices.index[1]]
+    assert int(coverage_row["TOTAL_NUMBER"]) == 2
+    assert coverage_row["PERCENTAGE"] == pytest.approx(2.0 / 3.0)
+    assert coverage_row["MARKET_PERCENTAGE"] == pytest.approx(0.5)
 
 
 def test_total_return_one_row_window_returns_zero():
@@ -197,7 +227,6 @@ def test_backtest_summary_plot_factor_stats_builds_expected_lines(monkeypatch):
 
     total_return_stats = pd.DataFrame(
         {
-            "TOTAL_COVERED": [2, 2],
             "MEAN": [0.1, 0.2],
             "MEDIAN": [0.08, 0.18],
             "25TH": [0.02, 0.04],
@@ -235,4 +264,57 @@ def test_backtest_summary_plot_factor_stats_builds_expected_lines(monkeypatch):
     assert {trace.name for trace in built.data} == {"MEAN", "MEDIAN", "25TH", "75TH"}
     assert built.data[2].line.dash == "dot"
     assert built.data[3].line.dash == "dot"
+    assert called["show"] == 1
+
+
+def test_backtest_summary_plot_factor_coverage_builds_expected_lines(monkeypatch):
+    called = {"show": 0}
+
+    def fake_show(self):  # noqa: ANN001
+        called["show"] += 1
+
+    monkeypatch.setattr("visualization.figure.Figure.show", fake_show)
+
+    total_return_coverage = pd.DataFrame(
+        {
+            "TOTAL_NUMBER": [2, 2],
+            "PERCENTAGE": [0.5, 0.75],
+            "MARKET_PERCENTAGE": [0.4, 0.6],
+        },
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+    signal_algo = SimpleNamespace(
+        factor_coverage={"total_return": total_return_coverage}
+    )
+
+    backtest = SimpleNamespace(
+        name="Top",
+        strategy=SimpleNamespace(
+            prices=pd.Series(
+                [100.0, 101.0],
+                index=pd.date_range("2024-01-01", periods=2, freq="D"),
+                name="Top",
+            ),
+            algos={"MomentumSignal": signal_algo},
+            data=pd.DataFrame(),
+            universe=pd.DataFrame(),
+            outlays=pd.DataFrame(),
+        ),
+        weights=pd.DataFrame(),
+        security_weights=pd.DataFrame(),
+        positions=pd.DataFrame(),
+        get_transactions=pd.DataFrame(),
+    )
+    summary = BacktestSummary(backtest)
+
+    fig = summary.plot_factor_coverage("MomentumSignal", "total_return", "Top")
+    built = fig.build().fig
+
+    assert built is not None
+    assert (
+        built.layout.title.text == "Factor Coverage - MomentumSignal Total Return - Top"
+    )
+    assert {trace.name for trace in built.data} == {"PERCENTAGE", "MARKET_PERCENTAGE"}
+    assert built.layout.yaxis.tickformat == ".0%"
+    assert tuple(built.layout.yaxis.range) == (0.0, 1.0)
     assert called["show"] == 1

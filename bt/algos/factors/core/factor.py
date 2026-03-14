@@ -10,7 +10,8 @@ from bt.algos.core import Algo
 class Factor(Algo, metaclass=abc.ABCMeta):
     """Base class for factor algos with standardized cross-sectional stats."""
 
-    STATS_COLUMNS = ["TOTAL_COVERED", "MEAN", "MEDIAN", "25TH", "75TH"]
+    STATS_COLUMNS = ["MEAN", "MEDIAN", "25TH", "75TH"]
+    COVERAGE_COLUMNS = ["TOTAL_NUMBER", "PERCENTAGE", "MARKET_PERCENTAGE"]
 
     def __init__(
         self,
@@ -26,6 +27,7 @@ class Factor(Algo, metaclass=abc.ABCMeta):
         self.factor_key = factor_key
         self.standardize = standardize
         self.stats = pd.DataFrame(columns=self.STATS_COLUMNS)
+        self.coverage_df = pd.DataFrame(columns=self.COVERAGE_COLUMNS)
 
     @staticmethod
     def _to_factor_series(factor_values: Any) -> pd.Series:
@@ -71,8 +73,9 @@ class Factor(Algo, metaclass=abc.ABCMeta):
         now: pd.Timestamp,
         factor_values: Any,
         investable_universe: Iterable[Any],
+        market_weights: pd.Series | None = None,
     ) -> None:
-        """Record summary stats for the factor over the investable universe."""
+        """Record summary stats and coverage over the investable universe."""
         factor_series = self._to_factor_series(factor_values)
         investable_index = pd.Index(list(investable_universe))
         factor_series = factor_series.reindex(investable_index)
@@ -80,12 +83,34 @@ class Factor(Algo, metaclass=abc.ABCMeta):
         numeric = pd.to_numeric(factor_series, errors="coerce")
         finite_mask = numeric.notna() & np.isfinite(numeric.astype(float))
         covered = numeric.loc[finite_mask].astype(float)
+        total_names = int(len(investable_index))
+        percentage = (
+            float(len(covered)) / float(total_names) if total_names > 0 else 0.0
+        )
+        market_percentage = 0.0
+        if market_weights is not None and total_names > 0:
+            aligned_market_weights = pd.to_numeric(
+                market_weights.reindex(investable_index),
+                errors="coerce",
+            ).fillna(0.0)
+            total_market_weight = float(aligned_market_weights.sum())
+            if np.isfinite(total_market_weight) and not np.isclose(
+                total_market_weight, 0.0
+            ):
+                normalized_market_weights = aligned_market_weights / total_market_weight
+                market_percentage = float(
+                    normalized_market_weights.reindex(covered.index).fillna(0.0).sum()
+                )
+        self.coverage_df.loc[now, self.COVERAGE_COLUMNS] = [
+            int(len(covered)),
+            percentage,
+            market_percentage,
+        ]
 
         if covered.empty:
-            row = [0, np.nan, np.nan, np.nan, np.nan]
+            row = [np.nan, np.nan, np.nan, np.nan]
         else:
             row = [
-                int(len(covered)),
                 float(covered.mean()),
                 float(covered.median()),
                 float(covered.quantile(0.25)),
@@ -108,10 +133,26 @@ class Factor(Algo, metaclass=abc.ABCMeta):
         )
         if selected is None:
             return False
+        resolved_weights = self._resolve_wide_data_row_at_now(
+            now=now,
+            inline_wide=None,
+            wide_key="weights_wide",
+            key_resolver=lambda key: target.get_data(key),
+        )
+        market_weights = (
+            pd.Series(dtype=float)
+            if resolved_weights is None
+            else pd.to_numeric(
+                resolved_weights[1].reindex(selected),
+                errors="coerce",
+            ).fillna(0.0)
+        )
         if not selected:
             factor_values = pd.Series(dtype=float)
             temp[self.factor_key] = factor_values
-            self._update_stats(now, factor_values, selected)
+            self._update_stats(
+                now, factor_values, selected, market_weights=market_weights
+            )
             return True
 
         factor_values = self.calculate_factor(
@@ -126,7 +167,7 @@ class Factor(Algo, metaclass=abc.ABCMeta):
             factor_values = self._standardize_cross_section(factor_values, selected)
 
         temp[self.factor_key] = factor_values
-        self._update_stats(now, factor_values, selected)
+        self._update_stats(now, factor_values, selected, market_weights=market_weights)
         return True
 
     @abc.abstractmethod

@@ -49,6 +49,10 @@ class MomentumSignal(Signal):
             self.total_return_algo.factor_key,
             self.total_return_algo.stats,
         )
+        self._register_factor_coverage(
+            self.total_return_algo.factor_key,
+            self.total_return_algo.coverage_df,
+        )
 
     def _compute_signal(
         self,

@@ -75,6 +75,7 @@ class PriceCrossOverSignal(Signal):
         )
         self.ma_name = self.ma_algo.factor_key
         self._register_factor_stats(self.ma_name, self.ma_algo.stats)
+        self._register_factor_coverage(self.ma_name, self.ma_algo.coverage_df)
 
     def _compute_signal(
         self,
@@ -165,6 +166,8 @@ class DualMACrossoverSignal(Signal):
         self.long_name = self.long_ma_algo.factor_key
         self._register_factor_stats(self.short_name, self.short_ma_algo.stats)
         self._register_factor_stats(self.long_name, self.long_ma_algo.stats)
+        self._register_factor_coverage(self.short_name, self.short_ma_algo.coverage_df)
+        self._register_factor_coverage(self.long_name, self.long_ma_algo.coverage_df)
 
     def _compute_signal(
         self,

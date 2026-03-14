@@ -24,10 +24,19 @@ class Signal(Algo):
         self.history = pd.DataFrame(dtype=bool)
         self._history_columns: list[Any] | None = None
         self.factor_stats: dict[str, pd.DataFrame] = {}
+        self.factor_coverage: dict[str, pd.DataFrame] = {}
 
     def _register_factor_stats(self, factor_key: str, stats: pd.DataFrame) -> None:
         """Expose underlying factor stats for downstream consumers."""
         self.factor_stats[factor_key] = stats
+
+    def _register_factor_coverage(
+        self,
+        factor_key: str,
+        coverage: pd.DataFrame,
+    ) -> None:
+        """Expose underlying factor coverage for downstream consumers."""
+        self.factor_coverage[factor_key] = coverage
 
     def _update_history(
         self,
