@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 
@@ -8,6 +10,7 @@ from bt.algos.factors import (
     SimpleMovingAverage,
     TotalReturn,
 )
+from bt.analytics import BacktestSummary
 from bt.core import Strategy
 
 
@@ -135,3 +138,54 @@ def test_total_return_one_row_window_returns_zero():
 
     assert TotalReturn(lookback=pd.DateOffset(days=5))(strategy)
     assert strategy.temp["total_return"]["A"] == pytest.approx(0.0)
+
+
+def test_backtest_summary_plot_factor_stats_builds_expected_lines(monkeypatch):
+    called = {"show": 0}
+
+    def fake_show(self):  # noqa: ANN001
+        called["show"] += 1
+
+    monkeypatch.setattr("visualization.figure.Figure.show", fake_show)
+
+    algo = TotalReturn(lookback=pd.DateOffset(days=1))
+    algo.stats = pd.DataFrame(
+        {
+            "TOTAL_COVERED": [2, 2],
+            "MEAN": [0.1, 0.2],
+            "MEDIAN": [0.08, 0.18],
+            "25TH": [0.02, 0.04],
+            "75TH": [0.12, 0.24],
+        },
+        index=pd.date_range("2024-01-01", periods=2, freq="D"),
+    )
+
+    backtest = SimpleNamespace(
+        name="Top",
+        strategy=SimpleNamespace(
+            prices=pd.Series(
+                [100.0, 101.0],
+                index=pd.date_range("2024-01-01", periods=2, freq="D"),
+                name="Top",
+            ),
+            algos={"TotalReturn": algo},
+            data=pd.DataFrame(),
+            universe=pd.DataFrame(),
+            outlays=pd.DataFrame(),
+        ),
+        weights=pd.DataFrame(),
+        security_weights=pd.DataFrame(),
+        positions=pd.DataFrame(),
+        get_transactions=pd.DataFrame(),
+    )
+    summary = BacktestSummary(backtest)
+
+    fig = summary.plot_factor_stats("TotalReturn", "Top")
+    built = fig.build().fig
+
+    assert built is not None
+    assert built.layout.title.text == "Factor Stats - TotalReturn - Top"
+    assert {trace.name for trace in built.data} == {"MEAN", "MEDIAN", "25TH", "75TH"}
+    assert built.data[2].line.dash == "dot"
+    assert built.data[3].line.dash == "dot"
+    assert called["show"] == 1

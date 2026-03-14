@@ -1,12 +1,13 @@
 """Runner utilities for backtests and data-loading pipelines."""
 
-from typing import TYPE_CHECKING, Any, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Literal, Sequence
 
 import pandas as pd
 from tqdm import tqdm
 
 from bt.analytics import BacktestSummary
 from bt.core.backtest import Backtest
+from bt.core.commission import zero_commission
 from bt.core.strategy import Strategy
 from utils.logging import log
 from visualization.charts import Line
@@ -356,8 +357,9 @@ class Runner:
     def run_backtest(
         self,
         strategies: Strategy | Sequence[Strategy],
-        integer_positions: bool = True,
+        integer_positions: bool = False,
         progress_bar: bool = True,
+        commissions: Callable[[float, float], float] = zero_commission,
     ) -> BacktestSummary:
         """
         Build backtests for the provided strategies and execute them.
@@ -370,6 +372,8 @@ class Runner:
             Whether backtests should restrict positions to integer quantities.
         progress_bar
             Whether to display the outer backtest progress bar.
+        commissions
+            Commission function passed through to each constructed backtest.
         """
         if isinstance(strategies, Strategy):
             strategies = [strategies]
@@ -409,6 +413,7 @@ class Runner:
             Backtest(
                 strategy=strategy,
                 prices=prices,
+                commissions=commissions,
                 integer_positions=integer_positions,
                 progress_bar=False,
                 additional_data=additional_data,

@@ -354,9 +354,11 @@ class YahooData:
             if lowered in {"true", "false"}:
                 return "1" if lowered == "true" else "0"
 
-            parsed_datetime = pd.to_datetime(normalized, errors="coerce", utc=True)
+            parsed_datetime = pd.to_datetime(normalized, errors="coerce")
             if not pd.isna(parsed_datetime):
-                return parsed_datetime.tz_localize(None).date().isoformat()
+                if getattr(parsed_datetime, "tzinfo", None) is not None:
+                    parsed_datetime = parsed_datetime.tz_localize(None)
+                return parsed_datetime.date().isoformat()
 
             parsed_numeric = pd.to_numeric(normalized, errors="coerce")
             if not pd.isna(parsed_numeric):

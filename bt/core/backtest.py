@@ -33,9 +33,9 @@ class Backtest:
         Initial portfolio value before the first trading day. Must be finite.
     commissions : Callable[[float, float], float], default zero_commission
         Commission function receiving `(quantity, price)` and returning a cost.
-    integer_positions : bool, default True
+    integer_positions : bool, default False
         Whether the strategy trades only integer quantities.
-        Set to `False` when fractional positions are required.
+        Set to `True` when whole-share execution is required.
     progress_bar : bool, default False
         Whether to display a progress bar for this backtest's date loop.
     additional_data : Mapping[str, Any], optional
@@ -68,7 +68,7 @@ class Backtest:
         name: str | None = None,
         initial_capital: float = 1_000_000.0,
         commissions: Callable[[float, float], float] = zero_commission,
-        integer_positions: bool = True,
+        integer_positions: bool = False,
         progress_bar: bool = False,
         additional_data: Mapping[str, Any] | None = None,
         live_start_date: str | pd.Timestamp | None = None,

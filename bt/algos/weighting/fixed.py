@@ -53,8 +53,9 @@ class WeightFixedSchedule(WeightAlgo):
     """Assign date-indexed target weights.
 
     Weight source can be supplied directly as a ``DataFrame`` or loaded from
-    ``target.get_data(<key>)``. At ``target.now``, the matching row is written
-    to ``target.temp['weights']`` when available.
+    ``target.get_data(<key>)``. At the market-data timestamp (``target.last_day``
+    when available), the matching row is written to ``target.temp['weights']``
+    when available.
     """
 
     def __init__(self, weights: pd.DataFrame | str) -> None:
@@ -80,7 +81,7 @@ class WeightFixedSchedule(WeightAlgo):
             )
 
     def __call__(self, target: Any) -> bool:
-        """Assign target weights for ``target.now`` when available.
+        """Assign target weights for the current market-data date when available.
 
         Returns
         -------
@@ -90,10 +91,10 @@ class WeightFixedSchedule(WeightAlgo):
         temp = self._resolve_temp(target)
         if temp is None:
             return False
-        now = self._resolve_now(target)
+        data_now = self._resolve_market_data_now(target)
 
         resolved_weights = self._resolve_wide_data_row_at_now(
-            now=now,
+            now=data_now,
             inline_wide=self.weight_source,
             wide_key=self.weight_source_key,
             key_resolver=lambda key: target.get_data(key),
@@ -114,5 +115,5 @@ class WeightFixedSchedule(WeightAlgo):
                 if name in selected_set
             }
             resolved = self._normalize_to_one(resolved)
-        self._write_weights(temp, resolved, now=now, record_history=True)
+        self._write_weights(temp, resolved, now=data_now, record_history=True)
         return True

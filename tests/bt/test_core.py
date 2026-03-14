@@ -1,8 +1,17 @@
 import pandas as pd
 import pytest
 
-from bt.algos.flow import ClosePositionsAfterDates, RunOnce
-from bt.core import Node, Security, Strategy
+from bt.algos.flow import ClosePositionsAfterDates, RunDaily, RunOnce
+from bt.algos.portfolio_ops import Rebalance
+from bt.algos.weighting import WeightFixed
+from bt.core import (
+    LongShortStrategy,
+    Node,
+    Security,
+    Strategy,
+    fixed_per_trade_commission,
+    notional_bps_commission,
+)
 
 
 def _prices(**columns: list[float]) -> pd.DataFrame:
@@ -91,6 +100,42 @@ def test_security_allocate_rounds_negative_integer_trades_toward_zero():
     assert security.position == 5.0
 
 
+def test_security_allocate_keeps_integer_buys_feasible_with_commissions():
+    prices = _prices(A=[100.0, 100.0])
+    strategy = Strategy("parent", children=[Security("A")])
+    strategy.set_commissions(
+        lambda quantity, price: fixed_per_trade_commission(
+            quantity,
+            price,
+            fixed_fee=10.0,
+        )
+    )
+    _seed_first_day(strategy, prices, capital=1_000.0)
+
+    security = strategy.children["A"]
+    strategy.pre_market_update(prices.index[1], 1)
+
+    security.allocate(1_000.0)
+
+    assert security.position == 9.0
+    assert strategy.capital == pytest.approx(90.0)
+
+
+def test_security_allocate_with_notional_bps_commission_does_not_raise_or_overspend():
+    prices = _prices(A=[100.0, 100.0])
+    strategy = Strategy("parent", children=[Security("A")])
+    strategy.set_commissions(notional_bps_commission)
+    _seed_first_day(strategy, prices, capital=1_000.0)
+
+    security = strategy.children["A"]
+    strategy.pre_market_update(prices.index[1], 1)
+
+    security.allocate(1_000.0)
+
+    assert security.position == 9.0
+    assert strategy.capital == pytest.approx(97.75)
+
+
 def test_strategy_ensure_child_creates_security_after_setup_and_seeds_prior_close():
     prices = _prices(A=[100.0, 120.0, 130.0])
     strategy = Strategy("dynamic")
@@ -128,6 +173,26 @@ def test_strategy_positions_aggregate_duplicate_security_names_across_child_stra
     assert parent.outlays.loc[prices.index[1], "A"] == 200.0
 
 
+def test_rebalance_executes_sells_before_buys_and_uses_target_dollars():
+    prices = _prices(A=[100.0, 100.0, 100.0], B=[100.0, 100.0, 100.0])
+    strategy = Strategy("parent", children=[Security("A"), Security("B")])
+    _seed_first_day(strategy, prices, capital=1_000.0)
+
+    strategy.pre_market_update(prices.index[1], 1)
+    strategy.children["A"].allocate(500.0)
+    strategy.children["B"].allocate(500.0)
+    strategy.post_market_update()
+
+    strategy.temp["weights"] = {"B": 0.6, "A": 0.4}
+    strategy.pre_market_update(prices.index[2], 2)
+
+    Rebalance()(strategy)
+
+    assert strategy.capital == pytest.approx(0.0)
+    assert strategy.children["A"].position == pytest.approx(4.0)
+    assert strategy.children["B"].position == pytest.approx(6.0)
+
+
 def test_strategy_securities_returns_all_descendant_security_nodes():
     prices = _prices(A=[100.0, 100.0], B=[50.0, 50.0])
     child = Strategy("child", children=[Security("A")])
@@ -159,3 +224,52 @@ def test_strategy_dedupes_manual_last_valid_date_close_algo():
     ]
 
     assert len(close_algos) == 1
+
+
+def test_long_short_strategy_strips_execution_algos_from_model_sleeves():
+    long_strategy = Strategy("long", algos=[WeightFixed(A=1.0), Rebalance()])
+    short_strategy = Strategy("short", algos=[WeightFixed(B=1.0), Rebalance()])
+
+    strategy = LongShortStrategy(
+        "ls",
+        long_strategy=long_strategy,
+        short_strategy=short_strategy,
+    )
+
+    assert all(
+        not isinstance(algo, Rebalance) for algo in strategy.long_strategy.stack.algos
+    )
+    assert all(
+        not isinstance(algo, Rebalance) for algo in strategy.short_strategy.stack.algos
+    )
+    assert "Rebalance" not in strategy.long_strategy.algos
+    assert "Rebalance" not in strategy.short_strategy.algos
+    assert isinstance(strategy.stack.algos[1], RunDaily)
+    assert isinstance(strategy.stack.algos[2], Rebalance)
+    assert strategy.long_strategy is not long_strategy
+    assert strategy.short_strategy is not short_strategy
+    assert any(isinstance(algo, Rebalance) for algo in long_strategy.stack.algos)
+    assert any(isinstance(algo, Rebalance) for algo in short_strategy.stack.algos)
+
+
+def test_long_short_strategy_requires_distinct_sleeve_instances():
+    sleeve = Strategy("sleeve", algos=[WeightFixed(A=1.0)])
+
+    with pytest.raises(ValueError, match="must be different"):
+        LongShortStrategy(
+            "ls",
+            long_strategy=sleeve,
+            short_strategy=sleeve,
+        )
+
+
+def test_long_short_strategy_accepts_custom_frequency_algo():
+    strategy = LongShortStrategy(
+        "ls",
+        long_strategy=Strategy("long", algos=[WeightFixed(A=1.0)]),
+        short_strategy=Strategy("short", algos=[WeightFixed(B=1.0)]),
+        frequency_algo=RunOnce(),
+    )
+
+    assert isinstance(strategy.stack.algos[1], RunOnce)
+    assert isinstance(strategy.stack.algos[2], Rebalance)

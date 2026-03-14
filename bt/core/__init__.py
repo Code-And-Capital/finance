@@ -14,6 +14,7 @@ system, including:
 # ---------------------------------------------------------------------
 from .nodes import Node
 from .backtest import Backtest
+from .long_short_strategy import LongShortStrategy
 from .strategy import Strategy
 
 # ---------------------------------------------------------------------
@@ -40,6 +41,7 @@ from .commission import (
 __all__ = [
     "Node",
     "Backtest",
+    "LongShortStrategy",
     "Strategy",
     "Security",
     "zero_commission",

@@ -141,7 +141,9 @@ class PricingData(YahooData):
         out = dataframe.copy()
         out["TICKER"] = out["TICKER"].astype(str).str.strip().str.upper()
         row_start_dates = out["TICKER"].map(normalized_mapping)
-        row_dates = pd.to_datetime(out["DATE"], errors="coerce").dt.date
+        row_dates = dataframe_utils.coerce_datetime_series(
+            out["DATE"], errors="coerce"
+        ).dt.date
         keep_mask = row_start_dates.isna() | row_dates.ge(row_start_dates)
         filtered = out.loc[keep_mask].reset_index(drop=True)
         dropped = len(out) - len(filtered)
@@ -157,7 +159,9 @@ class PricingData(YahooData):
         """Convert a datetime column to python date objects."""
         out = df.copy()
         if column in out.columns:
-            out[column] = pd.to_datetime(out[column], errors="raise").dt.date
+            out[column] = dataframe_utils.coerce_datetime_series(
+                out[column], errors="raise"
+            ).dt.date
         return out
 
     @staticmethod
@@ -470,11 +474,9 @@ class AnalystPriceTargetsData(YahooData):
                 return rows_to_write
             else:
                 rows_to_write = rows_to_write.copy()
-                rows_to_write["DATE"] = (
-                    pd.to_datetime(rows_to_write["DATE"], errors="coerce", utc=True)
-                    .dt.tz_localize(None)
-                    .dt.date
-                )
+                rows_to_write["DATE"] = dataframe_utils.coerce_datetime_series(
+                    rows_to_write["DATE"], errors="coerce"
+                ).dt.date
                 self.azure_data_source.write_sql_table(
                     engine=engine,
                     table_name=self.table_name,

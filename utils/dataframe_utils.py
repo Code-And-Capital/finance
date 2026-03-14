@@ -27,16 +27,37 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def coerce_datetime_series(
+    series: pd.Series,
+    *,
+    errors: str = "raise",
+) -> pd.Series:
+    """Coerce a Series to timezone-naive datetimes without UTC conversion."""
+
+    def _convert(value):
+        if pd.isna(value):
+            return pd.NaT
+        try:
+            parsed = pd.Timestamp(value)
+        except Exception:
+            if errors == "raise":
+                raise
+            return pd.NaT
+        if parsed.tzinfo is not None:
+            parsed = parsed.tz_localize(None)
+        return parsed
+
+    converted = pd.Series((_convert(value) for value in series), index=series.index)
+    return pd.to_datetime(converted, errors="coerce")
+
+
 def ensure_datetime_column(df: pd.DataFrame, column: str = "DATE") -> pd.DataFrame:
     """Validate and coerce a column to pandas datetime."""
     if column not in df.columns:
         raise ValueError(f"Expected column '{column}' in SQL results")
 
     out = df.copy()
-    # Parse as UTC to support mixed/aware timestamps, then drop tz for uniform naive dtype.
-    out[column] = pd.to_datetime(out[column], errors="raise", utc=True).dt.tz_localize(
-        None
-    )
+    out[column] = coerce_datetime_series(out[column], errors="raise")
     return out
 
 

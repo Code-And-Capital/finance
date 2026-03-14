@@ -5,9 +5,10 @@ import pandas as pd
 import pytest
 
 from bt.algos.core import Algo
+from bt.algos.flow import RunOnce
 from bt.algos.portfolio_ops import Rebalance
 from bt.algos.weighting import WeightFixed
-from bt.core import Backtest, Strategy
+from bt.core import Backtest, LongShortStrategy, Strategy
 
 
 class RecordRunState(Algo):
@@ -67,6 +68,14 @@ def test_backtest_uses_strategy_name_by_default():
     backtest = Backtest(Strategy("named"), prices, progress_bar=False)
 
     assert backtest.name == "named"
+
+
+def test_backtest_defaults_to_fractional_positions():
+    prices = _prices(A=[100.0, 101.0])
+
+    backtest = Backtest(Strategy("fractional_default"), prices, progress_bar=False)
+
+    assert backtest.strategy.integer_positions is False
 
 
 def test_backtest_validates_primary_data_inputs():
@@ -160,8 +169,8 @@ def test_backtest_trades_pre_market_using_prior_close():
     traded_day = prices.index[1]
     closed_day = prices.index[2]
     assert backtest.positions.loc[traded_day, "A"] == 100.0
-    assert backtest.positions.loc[closed_day, "A"] == 0.0
-    assert backtest.strategy.children["A"].position == 0.0
+    assert backtest.positions.loc[closed_day, "A"] == 100.0
+    assert backtest.strategy.children["A"].position == 100.0
 
 
 def test_backtest_live_start_date_uses_live_window_prior_close():
@@ -192,7 +201,7 @@ def test_backtest_creates_missing_security_children_on_demand():
     assert "A" in backtest.strategy.children
     assert backtest.strategy.children["A"]._issec is True
     assert backtest.positions["A"].max() > 0
-    assert backtest.positions["A"].iloc[-1] == 0.0
+    assert backtest.positions["A"].iloc[-1] > 0.0
 
 
 def test_backtest_forwards_additional_data():
@@ -226,9 +235,8 @@ def test_backtest_transactions_property_returns_multiindex_frame():
     assert isinstance(transactions, pd.DataFrame)
     assert list(transactions.columns) == ["price", "quantity"]
     assert transactions.index.names == ["Date", "Security"]
-    assert len(transactions) == 2
+    assert len(transactions) == 1
     assert transactions["quantity"].iloc[0] > 0
-    assert transactions["quantity"].iloc[1] < 0
 
 
 def test_backtest_exposes_weights_security_weights_and_turnover():
@@ -309,3 +317,82 @@ def test_backtest_failed_run_does_not_mark_has_run():
         backtest.run()
 
     assert backtest.has_run is False
+
+
+def test_long_short_strategy_executes_one_signed_top_level_book():
+    prices = _prices(A=[100.0, 100.0, 100.0], B=[100.0, 100.0, 100.0])
+    long_strategy = Strategy("long_model", algos=[WeightFixed(A=1.0), Rebalance()])
+    short_strategy = Strategy("short_model", algos=[WeightFixed(B=1.0), Rebalance()])
+    strategy = LongShortStrategy(
+        "ls",
+        long_strategy=long_strategy,
+        short_strategy=short_strategy,
+        long_exposure=1.0,
+        short_exposure=1.0,
+    )
+    backtest = Backtest(
+        strategy,
+        prices,
+        initial_capital=1_000.0,
+        integer_positions=False,
+        progress_bar=False,
+    )
+
+    backtest.run()
+
+    traded_day = prices.index[1]
+    assert backtest.positions.loc[traded_day, "A"] == pytest.approx(10.0)
+    assert backtest.positions.loc[traded_day, "B"] == pytest.approx(-10.0)
+    assert backtest.strategy.children["A"].parent is backtest.strategy
+    assert backtest.strategy.children["B"].parent is backtest.strategy
+    assert "long_model" not in backtest.strategy.children
+    assert "short_model" not in backtest.strategy.children
+
+
+def test_long_short_strategy_nets_overlapping_long_and_short_targets():
+    prices = _prices(A=[100.0, 100.0, 100.0])
+    strategy = LongShortStrategy(
+        "ls",
+        long_strategy=Strategy("long_model", algos=[WeightFixed(A=1.0)]),
+        short_strategy=Strategy("short_model", algos=[WeightFixed(A=1.0)]),
+    )
+    backtest = Backtest(
+        strategy,
+        prices,
+        initial_capital=1_000.0,
+        integer_positions=False,
+        progress_bar=False,
+    )
+
+    backtest.run()
+
+    assert "A" not in backtest.strategy.children
+    assert backtest.get_transactions.empty
+
+
+def test_long_short_strategy_caches_latest_sleeve_weights_between_emissions():
+    prices = _prices(A=[100.0, 100.0, 100.0, 100.0], B=[100.0, 100.0, 100.0, 100.0])
+    strategy = LongShortStrategy(
+        "ls",
+        long_strategy=Strategy("long_model", algos=[RunOnce(), WeightFixed(A=1.0)]),
+        short_strategy=Strategy("short_model", algos=[RunOnce(), WeightFixed(B=1.0)]),
+    )
+    backtest = Backtest(
+        strategy,
+        prices,
+        initial_capital=1_000.0,
+        integer_positions=False,
+        progress_bar=False,
+    )
+
+    backtest.run()
+
+    first_run_day = prices.index[1]
+    second_run_day = prices.index[2]
+
+    assert backtest.positions.loc[first_run_day, "A"] == pytest.approx(10.0)
+    assert backtest.positions.loc[first_run_day, "B"] == pytest.approx(-10.0)
+    assert backtest.positions.loc[second_run_day, "A"] == pytest.approx(10.0)
+    assert backtest.positions.loc[second_run_day, "B"] == pytest.approx(-10.0)
+    assert backtest.strategy._long_weights == {"A": 1.0}
+    assert backtest.strategy._short_weights == {"B": 1.0}

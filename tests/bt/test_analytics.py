@@ -261,6 +261,161 @@ def test_backtest_summary_plot_security_weights_builds_figure(monkeypatch):
     assert called["show"] == 1
 
 
+def test_backtest_summary_plot_current_security_weights_builds_pie(monkeypatch):
+    called = {"show": 0}
+
+    def fake_show(self):  # noqa: ANN001
+        called["show"] += 1
+
+    monkeypatch.setattr("visualization.figure.Figure.show", fake_show)
+
+    summary = BacktestSummary(
+        _BacktestStub("Top"), figi_to_ticker={"A": "AAPL", "B": "MSFT"}
+    )
+
+    fig = summary.plot_current_security_weights("Top")
+    built = fig.build().fig
+
+    assert built is not None
+    assert built.layout.title.text == "Current Security Weights - Top"
+    assert len(built.data) == 1
+    assert built.data[0].type == "pie"
+    assert set(built.data[0].labels) == {"AAPL", "MSFT"}
+    assert called["show"] == 1
+
+
+def test_backtest_summary_plot_sector_weights_builds_area_chart(monkeypatch):
+    called = {"show": 0}
+
+    def fake_show(self):  # noqa: ANN001
+        called["show"] += 1
+
+    monkeypatch.setattr("visualization.figure.Figure.show", fake_show)
+
+    summary = BacktestSummary(_BacktestStub("Top"))
+    sector_wide = pd.DataFrame(
+        {
+            "a": ["Tech"] * len(summary.get_security_weights("Top")),
+            "b": ["Financials"] * len(summary.get_security_weights("Top")),
+        },
+        index=summary.get_security_weights("Top").index,
+    )
+
+    fig = summary.plot_sector_weights(sector_wide, "Top")
+    built = fig.build().fig
+
+    assert built is not None
+    assert built.layout.title.text == "Sector Weights - Top"
+    assert built.layout.yaxis.tickformat == ".0%"
+    assert len(built.data) == 2
+    assert {trace.name for trace in built.data} == {"Tech", "Financials"}
+    assert called["show"] == 1
+
+
+def test_backtest_summary_plot_signal_state_counts_builds_bar_chart(monkeypatch):
+    called = {"show": 0}
+
+    def fake_show(self):  # noqa: ANN001
+        called["show"] += 1
+
+    monkeypatch.setattr("visualization.figure.Figure.show", fake_show)
+
+    signal_history = pd.DataFrame(
+        {
+            "A": [True, False, True],
+            "B": [False, False, True],
+        },
+        index=pd.date_range("2024-01-01", periods=3, freq="D"),
+    )
+    signal_algo = SimpleNamespace(history=signal_history)
+    backtest = SimpleNamespace(
+        name="Top",
+        strategy=SimpleNamespace(
+            prices=pd.Series(
+                [100.0, 101.0, 102.0],
+                index=pd.date_range("2024-01-01", periods=3, freq="D"),
+                name="Top",
+            ),
+            algos={"PriceCrossOverSignal": signal_algo},
+            data=pd.DataFrame(),
+            universe=pd.DataFrame(),
+            outlays=pd.DataFrame(),
+        ),
+        weights=pd.DataFrame(),
+        security_weights=pd.DataFrame(),
+        positions=pd.DataFrame(),
+        get_transactions=pd.DataFrame(),
+    )
+    summary = BacktestSummary(backtest, figi_to_ticker={"A": "AAPL", "B": "AMD"})
+
+    fig = summary.plot_signal_state_counts(
+        "PriceCrossOverSignal", "Top", ["AAPL", "AMD"]
+    )
+    built = fig.build().fig
+
+    assert built is not None
+    assert built.layout.title.text == "Signal Counts - PriceCrossOverSignal - Top"
+    assert len(built.data) == 2
+    assert {trace.name for trace in built.data} == {"False", "True"}
+    assert list(built.data[0].x) == ["AAPL", "AMD"]
+    assert called["show"] == 1
+
+
+def test_backtest_summary_plot_signal_selection_counts_builds_bar_chart(monkeypatch):
+    called = {"show": 0}
+
+    def fake_show(self):  # noqa: ANN001
+        called["show"] += 1
+
+    monkeypatch.setattr("visualization.figure.Figure.show", fake_show)
+
+    signal_history = pd.DataFrame(
+        {
+            "A": [True, False, True],
+            "B": [False, False, True],
+            "C": [True, True, True],
+        },
+        index=pd.date_range("2024-01-01", periods=3, freq="D"),
+    )
+    signal_algo = SimpleNamespace(history=signal_history)
+    backtest = SimpleNamespace(
+        name="Top",
+        strategy=SimpleNamespace(
+            prices=pd.Series(
+                [100.0, 101.0, 102.0],
+                index=pd.date_range("2024-01-01", periods=3, freq="D"),
+                name="Top",
+            ),
+            algos={"PriceCrossOverSignal": signal_algo},
+            data=pd.DataFrame(),
+            universe=pd.DataFrame(),
+            outlays=pd.DataFrame(),
+        ),
+        weights=pd.DataFrame(),
+        security_weights=pd.DataFrame(),
+        positions=pd.DataFrame(),
+        get_transactions=pd.DataFrame(),
+    )
+    summary = BacktestSummary(
+        backtest,
+        figi_to_ticker={"A": "AAPL", "B": "AMD", "C": "COST"},
+    )
+
+    fig = summary.plot_signal_selection_counts("PriceCrossOverSignal", "Top", top_n=2)
+    built = fig.build().fig
+
+    assert built is not None
+    assert (
+        built.layout.title.text
+        == "Signal Selection Counts - PriceCrossOverSignal - Top"
+    )
+    assert len(built.data) == 1
+    assert built.data[0].name == "Count"
+    assert list(built.data[0].x) == ["COST", "AAPL"]
+    assert list(built.data[0].y) == [3, 2]
+    assert called["show"] == 1
+
+
 def test_backtest_summary_validates_constructor_inputs():
     with pytest.raises(ValueError, match="at least one"):
         BacktestSummary()

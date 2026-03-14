@@ -70,8 +70,19 @@ class Rebalance(Algo):
             if v != 0.0 and not np.isnan(v):
                 target.close(cname)
 
-        # Apply target allocations.
+        # Execute sells before buys so freed capital is available within the same rebalance.
+        rebalance_plan: list[tuple[float, str, float]] = []
         for child_name, weight in targets.items():
+            child = (
+                target._ensure_child(child_name)
+                if child_name not in target.children
+                else target.children[child_name]
+            )
+            target_value = float(weight) * base
+            delta_value = target_value - float(child._value)
+            rebalance_plan.append((delta_value, child_name, float(weight)))
+
+        for _, child_name, weight in sorted(rebalance_plan, key=lambda item: item[0]):
             target.rebalance(weight, child=child_name, base=base)
 
         return True

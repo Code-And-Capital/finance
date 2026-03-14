@@ -367,8 +367,9 @@ class Strategy(Node):
             return
 
         current_child = self._ensure_child(child)
-        delta = weight - current_child._weight
-        current_child.allocate(delta * base)
+        target_value = float(weight) * float(base)
+        delta_value = target_value - float(current_child._value)
+        current_child.allocate(delta_value)
 
     def close(self, child: str) -> None:
         """Close an existing child position."""

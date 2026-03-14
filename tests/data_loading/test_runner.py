@@ -215,10 +215,57 @@ def test_runner_run_backtest_passes_live_start_date(monkeypatch):
     assert len(result) == 1
     assert captured[0]["prices"] is full_history
     assert captured[0]["live_start_date"] == live_window.index[0]
+    assert captured[0]["commissions"](1.0, 100.0) == 0.0
+    assert captured[0]["integer_positions"] is False
     assert summary_captured["benchmark"].equals(
         pd.DataFrame({"SPX": [100.0, 101.0]}, index=live_window.index)
     )
     assert summary_captured["figi_to_ticker"] == {"FIGI_SPX": "SPX"}
+
+
+def test_runner_run_backtest_forwards_custom_commissions(monkeypatch):
+    captured: list[dict[str, object]] = []
+
+    full_history = pd.DataFrame(
+        {"A": [100.0, 101.0, 102.0]},
+        index=pd.date_range("2024-01-01", periods=3, freq="D"),
+    )
+    live_window = full_history.iloc[1:]
+
+    class FakeBacktest:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+            self.name = kwargs["strategy"].name
+
+        def run(self):
+            return None
+
+    monkeypatch.setattr("bt.runner.Backtest", FakeBacktest)
+    monkeypatch.setattr(
+        Runner,
+        "run_strategies",
+        staticmethod(lambda *backtests, **kwargs: list(backtests)),
+    )
+
+    runner = Runner(portfolio="S&P 500")
+    runner.prices_data_source = SimpleNamespace(
+        formatted_data={
+            "prices_wide_full_history": full_history,
+            "prices_wide": live_window,
+        }
+    )
+    runner.holdings_data_source = SimpleNamespace(formatted_data={})
+    runner.index_data_source = None
+    runner.security_data_source = None
+
+    commission_fn = lambda quantity, price: 5.0  # noqa: E731
+    runner.run_backtest(
+        Strategy("demo"),
+        progress_bar=False,
+        commissions=commission_fn,
+    )
+
+    assert captured[0]["commissions"] is commission_fn
 
 
 def test_runner_run_backtest_omits_benchmark_without_index_source(monkeypatch):

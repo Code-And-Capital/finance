@@ -77,11 +77,9 @@ class _BaseHolders(YahooData):
         dtype_overrides: dict[str, satypes.TypeEngine] = {}
         for column in date_columns:
             if column in rows_to_write.columns:
-                rows_to_write[column] = (
-                    pd.to_datetime(rows_to_write[column], errors="coerce", utc=True)
-                    .dt.tz_localize(None)
-                    .dt.date
-                )
+                rows_to_write[column] = dataframe_utils.coerce_datetime_series(
+                    rows_to_write[column], errors="coerce"
+                ).dt.date
                 dtype_overrides[column] = satypes.Date()
 
         self.azure_data_source.write_sql_table(

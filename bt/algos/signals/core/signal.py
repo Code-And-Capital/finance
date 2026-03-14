@@ -21,6 +21,22 @@ class Signal(Algo):
     def __init__(self) -> None:
         """Initialize signal base."""
         super().__init__()
+        self.history = pd.DataFrame(dtype=bool)
+        self._history_columns: list[Any] | None = None
+
+    def _update_history(
+        self,
+        now: pd.Timestamp,
+        universe_columns: list[Any],
+        mask: pd.Series,
+    ) -> None:
+        """Persist boolean signal state for the current timestamp."""
+        if self._history_columns is None:
+            self._history_columns = list(universe_columns)
+            self.history = pd.DataFrame(columns=self._history_columns, dtype=bool)
+
+        active = mask.reindex(self._history_columns, fill_value=False).astype(bool)
+        self.history.loc[now, :] = active
 
     def __call__(self, target: Any) -> bool:
         """Compute and store selected tickers in ``target.temp['selected']``."""
@@ -39,6 +55,7 @@ class Signal(Algo):
 
         if not candidate_pool:
             temp["selected"] = []
+            self._update_history(now, list(universe.columns), pd.Series(dtype=bool))
             return True
 
         signal = self._compute_signal(
@@ -58,6 +75,7 @@ class Signal(Algo):
             return False
 
         temp["selected"] = list(mask[mask].index)
+        self._update_history(now, list(universe.columns), mask)
         return True
 
     def _compute_signal(

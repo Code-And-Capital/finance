@@ -87,13 +87,9 @@ class InsiderTransactionsData(YahooData):
                     )
                 for column in ["DATE", "START_DATE"]:
                     if column in rows_to_write.columns:
-                        rows_to_write[column] = (
-                            pd.to_datetime(
-                                rows_to_write[column], errors="coerce", utc=True
-                            )
-                            .dt.tz_localize(None)
-                            .dt.date
-                        )
+                        rows_to_write[column] = dataframe_utils.coerce_datetime_series(
+                            rows_to_write[column], errors="coerce"
+                        ).dt.date
                 self.azure_data_source.write_sql_table(
                     table_name=self.table_name,
                     engine=engine,

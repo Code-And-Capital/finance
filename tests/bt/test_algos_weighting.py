@@ -119,16 +119,21 @@ def test_scale_weights_scales_existing_mapping():
     assert target.temp["weights"] == {"A": 0.1, "B": 0.4}
 
 
-def test_weight_fixed_schedule_reads_execution_date_row():
+def test_weight_fixed_schedule_reads_last_day_row():
     prices = _prices(A=[100.0, 101.0, 102.0], B=[100.0, 101.0, 102.0])
     schedule = pd.DataFrame(
         {"A": [1.0, 0.25, 0.75], "B": [0.0, 0.75, 0.25]},
         index=prices.index,
     )
-    strategy = _strategy_context(prices, now_idx=2, weights_schedule=schedule)
+    strategy = _strategy_context(
+        prices,
+        now_idx=2,
+        last_day_idx=1,
+        weights_schedule=schedule,
+    )
 
     assert WeightFixedSchedule("weights_schedule")(strategy)
-    assert strategy.temp["weights"] == {"A": 0.75, "B": 0.25}
+    assert strategy.temp["weights"] == {"A": 0.25, "B": 0.75}
 
 
 def test_weight_market_reads_market_caps_at_last_day():

@@ -40,9 +40,12 @@ def test_price_crossover_signal_uses_last_day_prices():
     prices = _prices(A=[100.0, 110.0, 90.0], B=[100.0, 90.0, 120.0])
     strategy = _strategy_context(prices, now_idx=2, last_day_idx=1)
     strategy.temp["moving_average"] = pd.Series({"A": 105.0, "B": 95.0})
+    algo = PriceCrossOverSignal()
 
-    assert PriceCrossOverSignal()(strategy)
+    assert algo(strategy)
     assert strategy.temp["selected"] == ["A"]
+    assert bool(algo.history.loc[prices.index[1], "A"]) is True
+    assert bool(algo.history.loc[prices.index[1], "B"]) is False
 
 
 def test_price_crossover_signal_respects_existing_candidate_pool():
@@ -50,9 +53,12 @@ def test_price_crossover_signal_respects_existing_candidate_pool():
     strategy = _strategy_context(prices, now_idx=1)
     strategy.temp["moving_average"] = pd.Series({"A": 105.0, "B": 95.0})
     strategy.temp["selected"] = ["B"]
+    algo = PriceCrossOverSignal()
 
-    assert PriceCrossOverSignal()(strategy)
+    assert algo(strategy)
     assert strategy.temp["selected"] == []
+    assert bool(algo.history.loc[prices.index[1], "A"]) is False
+    assert bool(algo.history.loc[prices.index[1], "B"]) is False
 
 
 def test_price_crossover_signal_returns_false_when_reference_missing():

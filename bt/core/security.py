@@ -50,6 +50,17 @@ class Security(Node):
             return full_outlay <= amount
         return full_outlay >= amount
 
+    @classmethod
+    def _make_integer_quantity_feasible(cls, q: int, amount: float, outlay_fn) -> int:
+        """Move an integer quantity toward zero until its outlay is feasible."""
+        adjusted_q = int(q)
+        while adjusted_q != 0:
+            full_outlay, _, _ = outlay_fn(adjusted_q)
+            if cls._is_feasible_outlay(full_outlay, amount):
+                return adjusted_q
+            adjusted_q = adjusted_q - 1 if adjusted_q > 0 else adjusted_q + 1
+        return 0
+
     def _seed_pre_market_price(self) -> None:
         """Seed a new security's reference price from the prior close."""
         seed_inow = max(int(self.inow) - 1, 0)
@@ -156,6 +167,11 @@ class Security(Node):
                 f"{self._price} as of {self.now}."
             )
 
+        if amount > 0.0 and self.parent is not None:
+            amount = min(float(amount), max(float(self.parent.capital), 0.0))
+            if is_zero(amount):
+                return
+
         if is_zero(amount + self._value):
             q = -self._position
         else:
@@ -200,10 +216,10 @@ class Security(Node):
                         break
 
                 if self.integer_positions and last_q == q:
-                    raise RuntimeError(
-                        "Integer position adjustment stuck because quantity did not change."
-                    )
+                    break
                 if np.abs(full_outlay - amount) > np.abs(last_amount_short):
+                    if self.integer_positions:
+                        break
                     raise RuntimeError(
                         "Quantity search moved further away from the requested amount."
                     )
@@ -214,6 +230,9 @@ class Security(Node):
                 raise RuntimeError(
                     "Infinite loop detected while adjusting allocation quantity."
                 )
+
+        if self.integer_positions:
+            q = self._make_integer_quantity_feasible(int(q), amount, self.outlay)
 
         self.transact(q)
 

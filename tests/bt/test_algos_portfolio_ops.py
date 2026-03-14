@@ -70,6 +70,25 @@ def test_rebalance_with_commissions_updates_close_state():
     assert strategy["c1"].weight == pytest.approx(900.0 / 999.0)
 
 
+def test_rebalance_with_multiple_buys_and_commissions_does_not_make_cash_negative():
+    algo = Rebalance()
+    prices = _prices(c1=[100.0, 100.0], c2=[100.0, 100.0])
+    strategy = Strategy("s")
+    strategy.set_commissions(lambda q, p: 10.0 if q != 0 else 0.0)
+    _prepare_strategy_for_trading(strategy, prices)
+
+    strategy.temp["weights"] = {"c1": 0.5, "c2": 0.5}
+
+    assert algo(strategy)
+
+    strategy.post_market_update()
+
+    assert strategy.capital >= 0.0
+    assert strategy["c1"].position == 4.0
+    assert strategy["c2"].position == 4.0
+    assert strategy.capital == pytest.approx(180.0)
+
+
 def test_rebalance_with_cash_reserve_leaves_cash_unallocated():
     algo = Rebalance()
     prices = _prices(c1=[100.0, 100.0], c2=[100.0, 100.0])

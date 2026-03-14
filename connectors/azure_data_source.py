@@ -9,6 +9,7 @@ from sqlalchemy import types as satypes
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.sql.type_api import TypeEngine
 
+import utils.dataframe_utils as dataframe_utils
 from config.configs import Configs
 from sql.script_factory import SQLClient
 from utils.logging import log
@@ -179,11 +180,14 @@ class AzureDataSource:
             if isinstance(sql_type, satypes.Date) and not isinstance(
                 sql_type, satypes.DateTime
             ):
-                parsed = pd.to_datetime(out[column], errors="coerce", utc=True)
-                out[column] = parsed.dt.tz_localize(None).dt.date
+                parsed = dataframe_utils.coerce_datetime_series(
+                    out[column], errors="coerce"
+                )
+                out[column] = parsed.dt.date
             elif isinstance(sql_type, satypes.DateTime):
-                parsed = pd.to_datetime(out[column], errors="coerce", utc=True)
-                out[column] = parsed.dt.tz_localize(None)
+                out[column] = dataframe_utils.coerce_datetime_series(
+                    out[column], errors="coerce"
+                )
 
         return out
 
@@ -223,7 +227,7 @@ class AzureDataSource:
             .tolist()
         )
         date_values = (
-            pd.to_datetime(df[date_column], errors="coerce")
+            dataframe_utils.coerce_datetime_series(df[date_column], errors="coerce")
             .dropna()
             .dt.date.astype(str)
             .unique()
