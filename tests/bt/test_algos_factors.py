@@ -148,8 +148,7 @@ def test_backtest_summary_plot_factor_stats_builds_expected_lines(monkeypatch):
 
     monkeypatch.setattr("visualization.figure.Figure.show", fake_show)
 
-    algo = TotalReturn(lookback=pd.DateOffset(days=1))
-    algo.stats = pd.DataFrame(
+    total_return_stats = pd.DataFrame(
         {
             "TOTAL_COVERED": [2, 2],
             "MEAN": [0.1, 0.2],
@@ -159,6 +158,7 @@ def test_backtest_summary_plot_factor_stats_builds_expected_lines(monkeypatch):
         },
         index=pd.date_range("2024-01-01", periods=2, freq="D"),
     )
+    signal_algo = SimpleNamespace(factor_stats={"total_return": total_return_stats})
 
     backtest = SimpleNamespace(
         name="Top",
@@ -168,7 +168,7 @@ def test_backtest_summary_plot_factor_stats_builds_expected_lines(monkeypatch):
                 index=pd.date_range("2024-01-01", periods=2, freq="D"),
                 name="Top",
             ),
-            algos={"TotalReturn": algo},
+            algos={"MomentumSignal": signal_algo},
             data=pd.DataFrame(),
             universe=pd.DataFrame(),
             outlays=pd.DataFrame(),
@@ -180,11 +180,11 @@ def test_backtest_summary_plot_factor_stats_builds_expected_lines(monkeypatch):
     )
     summary = BacktestSummary(backtest)
 
-    fig = summary.plot_factor_stats("TotalReturn", "Top")
+    fig = summary.plot_factor_stats("MomentumSignal", "total_return", "Top")
     built = fig.build().fig
 
     assert built is not None
-    assert built.layout.title.text == "Factor Stats - TotalReturn - Top"
+    assert built.layout.title.text == "Factor Stats - MomentumSignal Total Return - Top"
     assert {trace.name for trace in built.data} == {"MEAN", "MEDIAN", "25TH", "75TH"}
     assert built.data[2].line.dash == "dot"
     assert built.data[3].line.dash == "dot"

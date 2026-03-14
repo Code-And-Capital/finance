@@ -3,7 +3,7 @@
 This subpackage contains algorithms that compute indicator-like analytics used
 for selection, ranking, and portfolio construction. Most algos in this module
 write cross-sectional values into ``target.temp`` (for example
-``target.temp["stat"]`` or moving-average vectors) for downstream consumption.
+named series in ``target.temp`` or moving-average vectors) for downstream consumption.
 """
 
 from .returns import TotalReturn

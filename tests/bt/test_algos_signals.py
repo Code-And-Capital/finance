@@ -39,11 +39,18 @@ def _strategy_context(
 def test_price_crossover_signal_uses_last_day_prices():
     prices = _prices(A=[100.0, 110.0, 90.0], B=[100.0, 90.0, 120.0])
     strategy = _strategy_context(prices, now_idx=2, last_day_idx=1)
-    strategy.temp["moving_average"] = pd.Series({"A": 105.0, "B": 95.0})
-    algo = PriceCrossOverSignal()
+    algo = PriceCrossOverSignal(
+        ma_type="simple",
+        lookback=pd.DateOffset(days=1),
+        lag=pd.DateOffset(days=0),
+        measure="mean",
+    )
 
     assert algo(strategy)
     assert strategy.temp["selected"] == ["A"]
+    assert strategy.temp["moving_average"]["A"] == pytest.approx(105.0)
+    assert strategy.temp["moving_average"]["B"] == pytest.approx(95.0)
+    assert algo.factor_stats["moving_average"] is algo.ma_algo.stats
     assert bool(algo.history.loc[prices.index[1], "A"]) is True
     assert bool(algo.history.loc[prices.index[1], "B"]) is False
 
@@ -51,56 +58,132 @@ def test_price_crossover_signal_uses_last_day_prices():
 def test_price_crossover_signal_respects_existing_candidate_pool():
     prices = _prices(A=[100.0, 110.0], B=[100.0, 90.0])
     strategy = _strategy_context(prices, now_idx=1)
-    strategy.temp["moving_average"] = pd.Series({"A": 105.0, "B": 95.0})
     strategy.temp["selected"] = ["B"]
-    algo = PriceCrossOverSignal()
+    algo = PriceCrossOverSignal(
+        ma_type="simple",
+        lookback=pd.DateOffset(days=1),
+    )
 
     assert algo(strategy)
     assert strategy.temp["selected"] == []
+    assert list(strategy.temp["moving_average"].index) == ["B"]
     assert bool(algo.history.loc[prices.index[1], "A"]) is False
     assert bool(algo.history.loc[prices.index[1], "B"]) is False
 
 
-def test_price_crossover_signal_returns_false_when_reference_missing():
-    prices = _prices(A=[100.0])
+def test_price_crossover_signal_validates_ma_type():
+    with pytest.raises(TypeError, match="ma_type"):
+        PriceCrossOverSignal(ma_type=None)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="ma_type"):
+        PriceCrossOverSignal(ma_type="weighted")
+    with pytest.raises(TypeError, match="half_life"):
+        PriceCrossOverSignal(ma_type="exponential")
+
+
+def test_price_crossover_signal_returns_false_when_internal_factor_cannot_compute():
+    prices = _prices(A=[100.0, 101.0])
     strategy = _strategy_context(prices, now_idx=0)
 
-    assert not PriceCrossOverSignal(ma_name="missing")(strategy)
+    assert not PriceCrossOverSignal(
+        ma_type="simple",
+        lookback=pd.DateOffset(days=1),
+        lag=pd.DateOffset(days=3),
+    )(strategy)
 
 
 def test_dual_ma_crossover_signal_selects_short_over_long():
-    prices = _prices(A=[100.0], B=[100.0], C=[100.0])
-    strategy = _strategy_context(prices, now_idx=0)
-    strategy.temp["ma_short"] = pd.Series({"A": 102.0, "B": 98.0, "C": 101.0})
-    strategy.temp["ma_long"] = pd.Series({"A": 100.0, "B": 100.0, "C": 101.0})
+    prices = _prices(
+        A=[100.0, 100.0, 110.0], B=[100.0, 100.0, 90.0], C=[100.0, 100.0, 100.0]
+    )
+    strategy = _strategy_context(prices, now_idx=2)
+    algo = DualMACrossoverSignal(
+        short_ma_type="exponential",
+        long_ma_type="simple",
+        short_half_life=0.5,
+        long_lookback=pd.DateOffset(days=1),
+        long_measure="mean",
+    )
 
-    assert DualMACrossoverSignal()(strategy)
+    assert algo(strategy)
     assert strategy.temp["selected"] == ["A"]
+    assert algo.factor_stats["short"] is algo.short_ma_algo.stats
+    assert algo.factor_stats["long"] is algo.long_ma_algo.stats
+
+
+def test_dual_ma_crossover_signal_validates_ma_types():
+    with pytest.raises(TypeError, match="ma_type"):
+        DualMACrossoverSignal(
+            short_ma_type=None,  # type: ignore[arg-type]
+            long_ma_type="simple",
+        )
+    with pytest.raises(ValueError, match="ma_type"):
+        DualMACrossoverSignal(
+            short_ma_type="weighted",
+            long_ma_type="simple",
+        )
+    with pytest.raises(TypeError, match="half_life"):
+        DualMACrossoverSignal(
+            short_ma_type="exponential",
+            long_ma_type="simple",
+        )
 
 
 def test_momentum_signal_validates_inputs():
     with pytest.raises(TypeError, match="ranking_algo"):
         MomentumSignal(ranking_algo=None)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="total_return_key"):
-        MomentumSignal(ranking_algo=SelectN(n=1), total_return_key=123)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="lookback"):
+        MomentumSignal(
+            ranking_algo=SelectN(n=1, stat_key="total_return"),
+            lookback="1 day",  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError, match="lag"):
+        MomentumSignal(
+            ranking_algo=SelectN(n=1, stat_key="total_return"),
+            lag=1,  # type: ignore[arg-type]
+        )
 
 
 def test_momentum_signal_uses_ranking_algo_to_choose_top_names():
     prices = _prices(A=[100.0, 101.0], B=[100.0, 99.0], C=[100.0, 105.0])
     strategy = _strategy_context(prices, now_idx=1)
     strategy.temp["selected"] = ["A", "B", "C"]
-    strategy.temp["total_return"] = pd.Series({"A": 0.01, "B": -0.01, "C": 0.05})
 
     algo = MomentumSignal(
-        ranking_algo=SelectN(n=1, sort_descending=True, stat_key="total_return"),
-        total_return_key="total_return",
+        ranking_algo=SelectN(n=1, stat_key="total_return", sort_descending=True),
+        lookback=pd.DateOffset(days=1),
     )
     assert algo(strategy)
     assert strategy.temp["selected"] == ["C"]
+    assert strategy.temp["total_return"]["A"] == pytest.approx(0.01)
+    assert strategy.temp["total_return"]["B"] == pytest.approx(-0.01)
+    assert strategy.temp["total_return"]["C"] == pytest.approx(0.05)
+    assert algo.factor_stats["total_return"] is algo.total_return_algo.stats
+    assert (
+        int(algo.factor_stats["total_return"].loc[prices.index[1], "TOTAL_COVERED"])
+        == 3
+    )
 
 
-def test_momentum_signal_returns_false_without_return_series():
+def test_momentum_signal_respects_existing_candidate_pool_for_internal_factor():
+    prices = _prices(A=[100.0, 101.0], B=[100.0, 99.0], C=[100.0, 105.0])
+    strategy = _strategy_context(prices, now_idx=1)
+    strategy.temp["selected"] = ["B", "C"]
+
+    algo = MomentumSignal(
+        ranking_algo=SelectN(n=1, stat_key="total_return"),
+        lookback=pd.DateOffset(days=1),
+    )
+    assert algo(strategy)
+    assert strategy.temp["selected"] == ["C"]
+    assert list(strategy.temp["total_return"].index) == ["B", "C"]
+
+
+def test_momentum_signal_returns_false_when_internal_factor_cannot_compute():
     prices = _prices(A=[100.0, 101.0])
     strategy = _strategy_context(prices, now_idx=1)
 
-    assert not MomentumSignal(ranking_algo=SelectN(n=1))(strategy)
+    assert not MomentumSignal(
+        ranking_algo=SelectN(n=1, stat_key="total_return"),
+        lookback=pd.DateOffset(days=0),
+        lag=pd.DateOffset(days=3),
+    )(strategy)

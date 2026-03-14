@@ -431,24 +431,35 @@ class BacktestSummary(MultiSeriesPerformanceStats):
 
     def plot_factor_stats(
         self,
+        signal: str,
         factor: str,
         backtest: Union[str, int] = 0,
         *,
         height: int = 500,
     ) -> Figure:
-        """Plot MEAN, MEDIAN, 25TH, and 75TH factor stats for a selected backtest."""
+        """Plot underlying factor stats exposed by a signal for a backtest."""
         key = self._get_backtest(backtest)
-        algo = self.backtests[key].strategy.algos.get(factor)
+        algo = self.backtests[key].strategy.algos.get(signal)
         if algo is None:
-            raise KeyError(f"Factor '{factor}' not found in backtest '{key}'.")
+            raise KeyError(f"Signal '{signal}' not found in backtest '{key}'.")
 
-        stats = getattr(algo, "stats", None)
+        factor_stats = getattr(algo, "factor_stats", None)
+        if not isinstance(factor_stats, dict):
+            raise TypeError(
+                f"Signal '{signal}' factor_stats must be a dict[str, pandas.DataFrame]."
+            )
+        stats = factor_stats.get(factor)
         if not isinstance(stats, pd.DataFrame):
-            raise TypeError(f"Factor '{factor}' stats must be a pandas DataFrame.")
+            raise KeyError(
+                f"Factor '{factor}' not found in signal '{signal}' for backtest '{key}'."
+            )
         if stats.empty:
-            raise ValueError(f"Factor '{factor}' stats are empty; nothing to plot.")
+            raise ValueError(
+                f"Factor '{factor}' stats for signal '{signal}' are empty; nothing to plot."
+            )
 
         plot_stats = stats.loc[:, ["MEAN", "MEDIAN", "25TH", "75TH"]].copy()
+        factor_display_name = factor.replace("_", " ").title()
 
         line = Line(plot_stats)
         line.create(x="index", y=list(plot_stats.columns), width=2, mode="lines")
@@ -467,7 +478,9 @@ class BacktestSummary(MultiSeriesPerformanceStats):
         fig = Figure(rows=1, cols=1)
         fig.add_chart(line, row=1, col=1)
         fig.layout(
-            title=f"Factor Stats - {factor} - {key}", height=height, showlegend=True
+            title=f"Factor Stats - {signal} {factor_display_name} - {key}",
+            height=height,
+            showlegend=True,
         )
         fig.show()
         return fig

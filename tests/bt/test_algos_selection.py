@@ -5,8 +5,10 @@ import pytest
 
 from bt.algos.selection import (
     AddSecurity,
+    Ranking,
     RemoveSecurities,
     SectorDoubleSort,
+    StandardDoubleSort,
     SelectActive,
     SelectAll,
     SelectHasData,
@@ -19,6 +21,23 @@ from bt.algos.selection import (
     SelectWhere,
 )
 from bt.core import Security, Strategy
+
+
+class _TestRanking(Ranking):
+    def __call__(self, target: Strategy) -> bool:
+        resolved = self._resolve_ranking_context(target)
+        if resolved is None:
+            return False
+        temp, _, now, candidate_pool = resolved
+
+        ranked = self._prepare_ranked_stat(temp, "metric", candidate_pool)
+        if ranked is None:
+            return False
+        if ranked.empty:
+            return self._set_empty_selection(temp, now)
+
+        selected_names = list(ranked.index)
+        return self._set_selected_and_record_stats(temp, now, selected_names, ranked)
 
 
 def _prices(**columns: list[float]) -> pd.DataFrame:
@@ -121,18 +140,55 @@ def test_select_where_uses_last_day_signal_row():
     assert strategy.temp["selected"] == ["A"]
 
 
+def test_ranking_base_prepares_ranked_stat_and_records_stats():
+    prices = _prices(
+        A=[100.0, 101.0], B=[100.0, 101.0], C=[100.0, 101.0], D=[100.0, 101.0]
+    )
+    strategy = _strategy_context(prices, now_idx=1)
+    strategy.temp["selected"] = ["A", "B", "C"]
+    strategy.temp["metric"] = pd.Series(
+        {"A": 2.0, "B": float("nan"), "C": float("inf"), "D": 4.0}
+    )
+
+    algo = _TestRanking()
+    assert algo(strategy)
+    assert strategy.temp["selected"] == ["A"]
+    assert algo.stats.loc[prices.index[1], "TOTAL_NAMES"] == 1
+    assert algo.stats.loc[prices.index[1], "MEAN"] == 2.0
+    assert algo.stats.loc[prices.index[1], "MEDIAN"] == 2.0
+
+
+def test_ranking_base_sets_empty_selection_and_empty_stats():
+    prices = _prices(A=[100.0, 101.0], B=[100.0, 101.0])
+    strategy = _strategy_context(prices, now_idx=1)
+    strategy.temp["selected"] = ["A", "B"]
+    strategy.temp["metric"] = pd.Series({"A": float("nan"), "B": float("inf")})
+
+    algo = _TestRanking()
+    assert algo(strategy)
+    assert strategy.temp["selected"] == []
+    assert algo.stats.loc[prices.index[1], "TOTAL_NAMES"] == 0
+    assert pd.isna(algo.stats.loc[prices.index[1], "MEAN"])
+    assert pd.isna(algo.stats.loc[prices.index[1], "MEDIAN"])
+
+
 def test_select_n_supports_absolute_and_fractional_counts():
     prices = _prices(A=[100.0, 101.0], B=[100.0, 101.0], C=[100.0, 101.0])
     strategy = _strategy_context(prices, now_idx=1)
     strategy.temp["selected"] = ["A", "B", "C"]
-    strategy.temp["stat"] = pd.Series({"A": 3.0, "B": 2.0, "C": 1.0})
+    strategy.temp["momentum"] = pd.Series({"A": 3.0, "B": 2.0, "C": 1.0})
 
-    assert SelectN(n=2)(strategy)
+    assert SelectN(n=2, stat_key="momentum")(strategy)
     assert strategy.temp["selected"] == ["A", "B"]
 
     strategy.temp["selected"] = ["A", "B", "C"]
-    assert SelectN(n=0.5)(strategy)
+    assert SelectN(n=0.5, stat_key="momentum")(strategy)
     assert strategy.temp["selected"] == ["A"]
+
+
+def test_select_n_requires_explicit_non_empty_stat_key():
+    with pytest.raises(TypeError, match="stat_key"):
+        SelectN(n=1, stat_key="")
 
 
 def test_select_quantile_picks_requested_bucket():
@@ -141,10 +197,15 @@ def test_select_quantile_picks_requested_bucket():
     )
     strategy = _strategy_context(prices, now_idx=1)
     strategy.temp["selected"] = ["A", "B", "C", "D"]
-    strategy.temp["stat"] = pd.Series({"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0})
+    strategy.temp["momentum"] = pd.Series({"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0})
 
-    assert SelectQuantile(n_tiles=2, tile=2)(strategy)
+    assert SelectQuantile(n_tiles=2, tile=2, stat_key="momentum")(strategy)
     assert strategy.temp["selected"] == ["C", "D"]
+
+
+def test_select_quantile_requires_explicit_non_empty_stat_key():
+    with pytest.raises(TypeError, match="stat_key"):
+        SelectQuantile(n_tiles=2, tile=1, stat_key="")
 
 
 def test_sector_double_sort_selects_top_bucket_within_each_sector():
@@ -162,10 +223,118 @@ def test_sector_double_sort_selects_top_bucket_within_each_sector():
     )
     strategy = _strategy_context(prices, now_idx=1, sector_wide=sectors)
     strategy.temp["selected"] = ["A", "B", "C", "D"]
-    strategy.temp["stat"] = pd.Series({"A": 4.0, "B": 1.0, "C": 3.0, "D": 2.0})
+    strategy.temp["momentum"] = pd.Series({"A": 4.0, "B": 1.0, "C": 3.0, "D": 2.0})
 
-    assert SectorDoubleSort(n_tiles=2)(strategy)
+    assert SectorDoubleSort(n_tiles=2, stat_key="momentum")(strategy)
     assert strategy.temp["selected"] == ["A", "C"]
+
+
+def test_sector_double_sort_requires_explicit_non_empty_stat_key():
+    with pytest.raises(TypeError, match="stat_key"):
+        SectorDoubleSort(n_tiles=2, stat_key="")
+
+
+def test_standard_double_sort_selects_top_second_bucket_within_each_first_bucket():
+    prices = _prices(
+        A=[100.0, 101.0],
+        B=[100.0, 101.0],
+        C=[100.0, 101.0],
+        D=[100.0, 101.0],
+        E=[100.0, 101.0],
+        F=[100.0, 101.0],
+        G=[100.0, 101.0],
+        H=[100.0, 101.0],
+    )
+    strategy = _strategy_context(prices, now_idx=1)
+    strategy.temp["selected"] = ["A", "B", "C", "D", "E", "F", "G", "H"]
+    strategy.temp["size"] = pd.Series(
+        {"A": 8.0, "B": 7.0, "C": 6.0, "D": 5.0, "E": 4.0, "F": 3.0, "G": 2.0, "H": 1.0}
+    )
+    strategy.temp["quality"] = pd.Series(
+        {"A": 1.0, "B": 4.0, "C": 3.0, "D": 2.0, "E": 8.0, "F": 5.0, "G": 7.0, "H": 6.0}
+    )
+
+    assert StandardDoubleSort(
+        n_tiles_1=2,
+        n_tiles_2=2,
+        stat_key_1="size",
+        stat_key_2="quality",
+    )(strategy)
+    assert strategy.temp["selected"] == ["B", "C", "E", "G"]
+
+
+def test_standard_double_sort_requires_explicit_non_empty_stat_keys():
+    with pytest.raises(TypeError, match="stat_key_1"):
+        StandardDoubleSort(
+            n_tiles_1=2,
+            n_tiles_2=2,
+            stat_key_1="",
+            stat_key_2="quality",
+        )
+    with pytest.raises(TypeError, match="stat_key_2"):
+        StandardDoubleSort(
+            n_tiles_1=2,
+            n_tiles_2=2,
+            stat_key_1="size",
+            stat_key_2="",
+        )
+
+
+def test_standard_double_sort_sort_descending_controls_second_metric_only():
+    prices = _prices(
+        A=[100.0, 101.0],
+        B=[100.0, 101.0],
+        C=[100.0, 101.0],
+        D=[100.0, 101.0],
+        E=[100.0, 101.0],
+        F=[100.0, 101.0],
+        G=[100.0, 101.0],
+        H=[100.0, 101.0],
+    )
+    strategy = _strategy_context(prices, now_idx=1)
+    strategy.temp["selected"] = ["A", "B", "C", "D", "E", "F", "G", "H"]
+    strategy.temp["size"] = pd.Series(
+        {"A": 8.0, "B": 7.0, "C": 6.0, "D": 5.0, "E": 4.0, "F": 3.0, "G": 2.0, "H": 1.0}
+    )
+    strategy.temp["quality"] = pd.Series(
+        {"A": 1.0, "B": 4.0, "C": 3.0, "D": 2.0, "E": 8.0, "F": 5.0, "G": 7.0, "H": 6.0}
+    )
+
+    assert StandardDoubleSort(
+        n_tiles_1=2,
+        n_tiles_2=2,
+        stat_key_1="size",
+        stat_key_2="quality",
+        sort_descending=False,
+    )(strategy)
+    assert strategy.temp["selected"] == ["A", "D", "F", "H"]
+
+
+def test_standard_double_sort_supports_different_tile_counts_per_pass():
+    prices = _prices(
+        A=[100.0, 101.0],
+        B=[100.0, 101.0],
+        C=[100.0, 101.0],
+        D=[100.0, 101.0],
+        E=[100.0, 101.0],
+        F=[100.0, 101.0],
+    )
+    strategy = _strategy_context(prices, now_idx=1)
+    strategy.temp["selected"] = ["A", "B", "C", "D", "E", "F"]
+    strategy.temp["size"] = pd.Series(
+        {"A": 6.0, "B": 5.0, "C": 4.0, "D": 3.0, "E": 2.0, "F": 1.0}
+    )
+    strategy.temp["quality"] = pd.Series(
+        {"A": 1.0, "B": 3.0, "C": 2.0, "D": 6.0, "E": 4.0, "F": 5.0}
+    )
+
+    assert StandardDoubleSort(
+        n_tiles_1=3,
+        n_tiles_2=2,
+        stat_key_1="size",
+        stat_key_2="quality",
+    )(strategy)
+    assert strategy.temp["selected"] == ["B", "D", "F"]
 
 
 def test_select_randomly_respects_n_and_existing_pool():

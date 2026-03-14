@@ -13,7 +13,13 @@ selection for benchmarking, and logical/boolean selection utilities.
 
 from .base_selection import SelectAll, SelectHasData, SelectActive, SelectIsOpen
 from .these import SelectThese, SelectWhere
-from .ranking import SectorDoubleSort, SelectN, SelectQuantile
+from .ranking import (
+    Ranking,
+    SectorDoubleSort,
+    StandardDoubleSort,
+    SelectN,
+    SelectQuantile,
+)
 from .random import SelectRandomly
 from .modifiers import RemoveSecurities, AddSecurity
 from .classification import SelectSector
@@ -22,9 +28,11 @@ __all__ = [
     "SelectAll",
     "SelectThese",
     "SelectHasData",
+    "Ranking",
     "SelectN",
     "SelectQuantile",
     "SectorDoubleSort",
+    "StandardDoubleSort",
     "SelectRandomly",
     "SelectWhere",
     "SelectActive",
