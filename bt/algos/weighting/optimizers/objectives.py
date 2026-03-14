@@ -50,3 +50,19 @@ def min_variance_objective(
 ):
     """Build CVXPY minimize objective for minimum-variance optimization."""
     return minimize_builder(0.5 * cvx.quad_form(weights, covariance))
+
+
+def exposure_matching_objective(
+    active_weights: cvx.Variable,
+    signal_stats: cvx.Parameter,
+    factor_exposures,
+    factor_covariance,
+    lambda_factor: float,
+    maximize_builder,
+):
+    """Build CVXPY maximize objective for active signal exposure matching."""
+    signal_term = active_weights.T @ signal_stats
+    active_factor_exposure = factor_exposures.T @ active_weights
+    factor_risk_term = cvx.quad_form(active_factor_exposure, factor_covariance)
+
+    return maximize_builder(signal_term - lambda_factor * factor_risk_term)

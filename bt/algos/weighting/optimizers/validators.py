@@ -4,6 +4,12 @@ import pandas as pd
 from utils.math_utils import validate_non_negative, validate_real
 
 
+def validate_dataframe(value, label: str, value_name: str) -> None:
+    """Validate that ``value`` is a pandas DataFrame."""
+    if not isinstance(value, pd.DataFrame):
+        raise TypeError(f"{label} `{value_name}` must be a DataFrame.")
+
+
 def validate_series(value, label: str, value_name: str) -> None:
     """Validate that ``value`` is a pandas Series."""
     if not isinstance(value, pd.Series):
@@ -39,8 +45,7 @@ def validate_square_covariance_matrix(covariance: pd.DataFrame, label: str) -> N
     label
         Name used in exception messages (usually optimizer class name).
     """
-    if not isinstance(covariance, pd.DataFrame):
-        raise TypeError(f"{label} `covariance` must be a DataFrame.")
+    validate_dataframe(covariance, label, "covariance")
     if covariance.shape[0] != covariance.shape[1]:
         raise ValueError(f"{label} covariance must be square.")
     if not covariance.index.equals(covariance.columns):

@@ -10,6 +10,11 @@ def sum_to_one_constraint(weights: cvx.Variable):
     return cvx.sum(weights) == 1.0
 
 
+def sum_to_zero_constraint(weights: cvx.Variable):
+    """Return CVXPY equality constraint enforcing ``sum(weights)=0``."""
+    return cvx.sum(weights) == 0.0
+
+
 def non_negative_constraint(weights: cvx.Variable):
     """Return CVXPY inequality constraint enforcing ``weights >= 0``."""
     return weights >= 0.0

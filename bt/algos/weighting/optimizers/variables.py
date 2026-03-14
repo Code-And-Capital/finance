@@ -12,15 +12,25 @@ def build_covariance_matrix(covariance: pd.DataFrame):
     return cvx.atoms.affine.wraps.psd_wrap(covariance.to_numpy(dtype=float))
 
 
-def build_expected_returns_parameter(
-    returns: pd.Series,
+def build_series_parameter(
+    values: pd.Series,
     parameter_builder: Callable[..., Any],
 ):
-    """Build and set expected-returns CVXPY parameter."""
-    parameter = parameter_builder(shape=len(returns))
+    """Build and set a numeric CVXPY parameter from a Series."""
+    parameter = parameter_builder(shape=len(values))
     parameter.value = (
-        pd.to_numeric(returns, errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        pd.to_numeric(values, errors="coerce").fillna(0.0).to_numpy(dtype=float)
     )
+    return parameter
+
+
+def build_matrix_parameter(
+    values: pd.DataFrame,
+    parameter_builder: Callable[..., Any],
+):
+    """Build and set a numeric CVXPY parameter from a DataFrame."""
+    parameter = parameter_builder(shape=values.shape)
+    parameter.value = values.to_numpy(dtype=float, copy=True)
     return parameter
 
 

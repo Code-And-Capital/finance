@@ -12,11 +12,19 @@ class Factor(Algo, metaclass=abc.ABCMeta):
 
     STATS_COLUMNS = ["TOTAL_COVERED", "MEAN", "MEDIAN", "25TH", "75TH"]
 
-    def __init__(self, factor_key: str, name: str | None = None) -> None:
+    def __init__(
+        self,
+        factor_key: str,
+        name: str | None = None,
+        standardize: bool = False,
+    ) -> None:
         super().__init__(name=name)
         if not isinstance(factor_key, str) or not factor_key:
             raise TypeError("Factor `factor_key` must be a non-empty string.")
+        if not isinstance(standardize, bool):
+            raise TypeError("Factor `standardize` must be a bool.")
         self.factor_key = factor_key
+        self.standardize = standardize
         self.stats = pd.DataFrame(columns=self.STATS_COLUMNS)
 
     @staticmethod
@@ -29,6 +37,34 @@ class Factor(Algo, metaclass=abc.ABCMeta):
             if isinstance(row, pd.Series):
                 return row
         return pd.Series(dtype=float)
+
+    @classmethod
+    def _standardize_cross_section(
+        cls,
+        factor_values: Any,
+        investable_universe: Iterable[Any],
+    ) -> pd.Series:
+        """Return cross-sectional z-scores over the investable universe."""
+        factor_series = cls._to_factor_series(factor_values)
+        investable_index = pd.Index(list(investable_universe))
+        aligned = factor_series.reindex(investable_index)
+
+        numeric = pd.to_numeric(aligned, errors="coerce")
+        values = numeric.astype(float)
+        finite_mask = values.notna() & np.isfinite(values.to_numpy(dtype=float))
+        if not finite_mask.any():
+            return values
+
+        covered = values.loc[finite_mask].astype(float)
+        std = float(covered.std(ddof=0))
+        standardized = values.copy()
+        if not np.isfinite(std) or std == 0.0:
+            standardized.loc[finite_mask] = 0.0
+            return standardized
+
+        mean = float(covered.mean())
+        standardized.loc[finite_mask] = (covered - mean) / std
+        return standardized
 
     def _update_stats(
         self,
@@ -86,6 +122,8 @@ class Factor(Algo, metaclass=abc.ABCMeta):
         )
         if not isinstance(factor_values, pd.Series):
             return False
+        if self.standardize:
+            factor_values = self._standardize_cross_section(factor_values, selected)
 
         temp[self.factor_key] = factor_values
         self._update_stats(now, factor_values, selected)

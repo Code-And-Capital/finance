@@ -33,7 +33,7 @@ class MovingAverage(Factor):
             raise TypeError("MovingAverage `lag` must be a pandas.DateOffset.")
         if not isinstance(factor_key, str) or not factor_key:
             raise TypeError("MovingAverage `factor_key` must be a non-empty string.")
-        super().__init__(factor_key=factor_key)
+        super().__init__(factor_key=factor_key, standardize=False)
         self.lag = lag
 
     def calculate_factor(

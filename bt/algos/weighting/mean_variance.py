@@ -19,7 +19,7 @@ from bt.algos.weighting.optimizers.validators import (
 )
 from bt.algos.weighting.optimizers.variables import (
     build_covariance_matrix,
-    build_expected_returns_parameter,
+    build_series_parameter,
     build_weight_variable,
 )
 
@@ -73,7 +73,7 @@ class MeanVarianceOptimizer(ConvexOptimizer):
             return
 
         cov_matrix = build_covariance_matrix(cov)
-        exp_returns = build_expected_returns_parameter(
+        exp_returns = build_series_parameter(
             rets,
             self.parameter,
         )

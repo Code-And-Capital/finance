@@ -7,10 +7,12 @@ from bt.algos.weighting.optimizers.convex_optimizer import ConvexOptimizer
 from bt.algos.weighting.optimizers.constraints import (
     bound_constraints,
     non_negative_constraint,
+    sum_to_zero_constraint,
     sum_to_one_constraint,
 )
 from bt.algos.weighting.optimizers.objectives import negative_sharpe_ratio
 from bt.algos.weighting.optimizers.objectives import (
+    exposure_matching_objective,
     min_variance_objective,
     mean_variance_utility_objective,
     risk_parity_objective,
@@ -18,9 +20,12 @@ from bt.algos.weighting.optimizers.objectives import (
 from bt.algos.weighting.optimizers.validators import (
     resolve_selected_covariance,
     validate_bounds,
+    validate_dataframe,
     validate_series,
     validate_square_covariance_matrix,
 )
+from bt.algos.weighting.optimizers.variables import build_matrix_parameter
+from bt.algos.weighting.exposure_matching import ExposureMatchingOptimizer
 from bt.algos.weighting.mean_variance import MeanVarianceOptimizer
 from bt.algos.weighting.random import RandomWeightOptimizer
 from bt.algos.weighting.risk_parity import RiskParityOptimizer
@@ -211,6 +216,15 @@ def test_validate_square_covariance_matrix_rejects_non_dataframe():
         validate_square_covariance_matrix([1, 2, 3], "TestOpt")  # type: ignore[arg-type]
 
 
+def test_validate_dataframe_rejects_non_dataframe():
+    with pytest.raises(TypeError, match="must be a DataFrame"):
+        validate_dataframe([1, 2, 3], "TestOpt", "factor_exposures")  # type: ignore[arg-type]
+
+
+def test_validate_dataframe_accepts_dataframe():
+    validate_dataframe(pd.DataFrame({"a": [1.0]}), "TestOpt", "factor_exposures")
+
+
 def test_validate_square_covariance_matrix_rejects_non_square():
     cov = pd.DataFrame([[1.0, 0.1]], index=["a"], columns=["a", "b"])
     with pytest.raises(ValueError, match="must be square"):
@@ -344,6 +358,35 @@ def test_min_variance_objective_builder():
     assert isinstance(obj, cvx.Minimize)
 
 
+def test_exposure_matching_objective_builder():
+    x = cvx.Variable(2)
+    stat = cvx.Parameter(shape=2)
+    stat.value = np.array([0.1, -0.1], dtype=float)
+    factor_exposures = np.array([[1.0], [-1.0]], dtype=float)
+    factor_cov = np.array([[0.02]], dtype=float)
+
+    obj = exposure_matching_objective(
+        x,
+        stat,
+        factor_exposures,
+        factor_cov,
+        lambda_factor=2.0,
+        maximize_builder=cvx.Maximize,
+    )
+    assert isinstance(obj, cvx.Maximize)
+
+
+def test_build_matrix_parameter_sets_parameter_value():
+    values = pd.DataFrame(
+        [[1.0, 2.0], [3.0, 4.0]], index=["a", "b"], columns=["x", "y"]
+    )
+
+    parameter = build_matrix_parameter(values, cvx.Parameter)
+
+    assert parameter.shape == (2, 2)
+    assert np.array_equal(parameter.value, values.to_numpy(dtype=float))
+
+
 def test_mean_variance_constraints_builders():
     w = cvx.Variable(2)
     box = bound_constraints(
@@ -352,6 +395,15 @@ def test_mean_variance_constraints_builders():
         np.array([1.0, 1.0]),
     )
     assert len(box) == 2
+
+
+def test_active_constraints_builders():
+    x = cvx.Variable(2)
+    problem = cvx.Problem(
+        cvx.Minimize(0),
+        [sum_to_zero_constraint(x)],
+    )
+    assert len(problem.constraints) == 1
 
 
 def test_mean_variance_optimizer_set_and_solve():
@@ -428,6 +480,124 @@ def test_mean_variance_optimizer_empty_returns():
     opt.set_problem(expected_returns, covariance, [])
     result = opt.solve_problem()
     assert result["weights"] == {}
+
+
+def test_exposure_matching_optimizer_set_and_solve():
+    stat = pd.Series({"c1": 1.0, "c2": -1.0})
+    benchmark = pd.Series({"c1": 0.5, "c2": 0.5})
+    exposures = pd.DataFrame({"MKT": [1.0, -1.0]}, index=["c1", "c2"])
+    factor_covariance = pd.DataFrame([[0.09]], index=["MKT"], columns=["MKT"])
+
+    opt = ExposureMatchingOptimizer(
+        lambda_factor=0.2,
+        active_bound=0.25,
+    )
+    opt.set_problem(
+        stat,
+        benchmark,
+        exposures,
+        factor_covariance,
+        ["c1", "c2"],
+    )
+    result = opt.solve_problem()
+
+    assert result["success"] is True
+    assert set(result["weights"].keys()) == {"c1", "c2"}
+    assert set(result["active_weights"].keys()) == {"c1", "c2"}
+    assert sum(result["weights"].values()) == pytest.approx(1.0)
+    assert sum(result["active_weights"].values()) == pytest.approx(0.0, abs=1e-8)
+    assert result["weights"]["c1"] > result["weights"]["c2"]
+    assert (
+        max(abs(weight) for weight in result["active_weights"].values()) <= 0.25 + 1e-8
+    )
+    assert min(result["weights"].values()) >= -1e-8
+
+
+def test_exposure_matching_optimizer_factor_penalty_reduces_active_factor_tilt():
+    stat = pd.Series({"c1": 1.0, "c2": -1.0})
+    benchmark = pd.Series({"c1": 0.5, "c2": 0.5})
+    exposures = pd.DataFrame({"MKT": [1.0, -1.0]}, index=["c1", "c2"])
+    factor_covariance = pd.DataFrame([[0.25]], index=["MKT"], columns=["MKT"])
+
+    low_penalty = ExposureMatchingOptimizer(
+        lambda_factor=0.0,
+        active_bound=0.5,
+    )
+    low_penalty.set_problem(
+        stat,
+        benchmark,
+        exposures,
+        factor_covariance,
+        ["c1", "c2"],
+    )
+    low_result = low_penalty.solve_problem()
+
+    high_penalty = ExposureMatchingOptimizer(
+        lambda_factor=10.0,
+        active_bound=0.5,
+    )
+    high_penalty.set_problem(
+        stat,
+        benchmark,
+        exposures,
+        factor_covariance,
+        ["c1", "c2"],
+    )
+    high_result = high_penalty.solve_problem()
+
+    low_active = pd.Series(low_result["active_weights"])
+    high_active = pd.Series(high_result["active_weights"])
+    low_tilt = float(abs((exposures.T @ low_active.reindex(exposures.index)).iloc[0]))
+    high_tilt = float(abs((exposures.T @ high_active.reindex(exposures.index)).iloc[0]))
+    assert high_tilt < low_tilt
+
+
+def test_exposure_matching_optimizer_drops_missing_inputs_and_reweights_benchmark():
+    stat = pd.Series({"c1": 1.0, "c2": -1.0})
+    benchmark = pd.Series({"c1": 0.2, "c2": 0.3, "c3": 0.5})
+    exposures = pd.DataFrame({"MKT": [1.0]}, index=["c1"])
+    factor_covariance = pd.DataFrame([[0.09]], index=["MKT"], columns=["MKT"])
+
+    opt = ExposureMatchingOptimizer(active_bound=0.25)
+    opt.set_problem(
+        stat,
+        benchmark,
+        exposures,
+        factor_covariance,
+        ["c1", "c2", "c3"],
+    )
+    result = opt.solve_problem()
+
+    assert result["weights"] == {"c1": pytest.approx(1.0)}
+    assert result["active_weights"] == {"c1": pytest.approx(0.0)}
+
+
+def test_exposure_matching_optimizer_requires_matching_factor_columns():
+    stat = pd.Series({"c1": 1.0, "c2": -1.0})
+    benchmark = pd.Series({"c1": 0.5, "c2": 0.5})
+    exposures = pd.DataFrame({"MKT": [1.0, -1.0]}, index=["c1", "c2"])
+    factor_covariance = pd.DataFrame(
+        [[0.09, 0.01], [0.01, 0.04]],
+        index=["MKT", "SMB"],
+        columns=["MKT", "SMB"],
+    )
+
+    opt = ExposureMatchingOptimizer(active_bound=0.25)
+    with pytest.raises(
+        ValueError, match="factor_exposures.*factor_covariance.*must match"
+    ):
+        opt.set_problem(
+            stat,
+            benchmark,
+            exposures,
+            factor_covariance,
+            ["c1", "c2"],
+        )
+
+
+def test_exposure_matching_optimizer_rejects_negative_active_bound():
+    with pytest.raises(ValueError, match="must be >= 0"):
+        ExposureMatchingOptimizer(active_bound=-0.25)
 
 
 def test_random_weight_optimizer_set_and_solve():

@@ -3,6 +3,7 @@ from typing import Any
 import pandas as pd
 
 from bt.algos.core import Algo
+from bt.algos.factors.core.factor import Factor
 
 
 class SetFactor(Algo):
@@ -17,12 +18,16 @@ class SetFactor(Algo):
     factor_df : pandas.DataFrame, optional
         Inline wide DataFrame source. When provided, this source is used
         directly and ``factor_str`` is used only as the output temp key.
+    standardize : bool, optional
+        If ``True``, write cross-sectional z-scores of the resolved row instead
+        of raw factor values.
     """
 
     def __init__(
         self,
         factor_str: str = "factor",
         factor_df: pd.DataFrame | None = None,
+        standardize: bool = False,
     ) -> None:
         """Initialize factor-setter algo."""
         super().__init__()
@@ -31,12 +36,15 @@ class SetFactor(Algo):
             raise TypeError("SetFactor `factor_str` must be a non-empty string.")
         if factor_df is not None and not isinstance(factor_df, pd.DataFrame):
             raise TypeError("SetFactor `factor_df` must be a pandas.DataFrame or None.")
+        if not isinstance(standardize, bool):
+            raise TypeError("SetFactor `standardize` must be a bool.")
 
         self.factor_str = factor_str
         self.factor_source = factor_df
         self.factor_source_key: str | None = (
             None if factor_df is not None else factor_str
         )
+        self.standardize = standardize
 
     def __call__(self, target: Any) -> bool:
         """Resolve factor row at the current market-data timestamp."""
@@ -57,5 +65,7 @@ class SetFactor(Algo):
         if resolved is None:
             return False
         _, row = resolved
+        if self.standardize:
+            row = Factor._standardize_cross_section(row, row.index)
         temp[self.factor_str] = row
         return True

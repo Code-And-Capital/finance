@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from utils.date_utils import coerce_timestamp
 
 
@@ -49,6 +50,40 @@ def coerce_datetime_series(
 
     converted = pd.Series((_convert(value) for value in series), index=series.index)
     return pd.to_datetime(converted, errors="coerce")
+
+
+def coerce_numeric_series(
+    series: pd.Series,
+    label: str,
+    value_name: str,
+) -> pd.Series:
+    """Return a finite float Series or raise a descriptive validation error."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.isna().any():
+        raise ValueError(
+            f"{label} `{value_name}` contains missing or non-numeric values."
+        )
+    values = numeric.to_numpy(dtype=float)
+    if not np.isfinite(values).all():
+        raise ValueError(f"{label} `{value_name}` must contain only finite values.")
+    return pd.Series(values, index=series.index, dtype=float)
+
+
+def coerce_numeric_frame(
+    frame: pd.DataFrame,
+    label: str,
+    value_name: str,
+) -> pd.DataFrame:
+    """Return a finite float DataFrame or raise a descriptive validation error."""
+    numeric = frame.apply(pd.to_numeric, errors="coerce")
+    if numeric.isna().any().any():
+        raise ValueError(
+            f"{label} `{value_name}` contains missing or non-numeric values."
+        )
+    values = numeric.to_numpy(dtype=float, copy=True)
+    if not np.isfinite(values).all():
+        raise ValueError(f"{label} `{value_name}` must contain only finite values.")
+    return pd.DataFrame(values, index=frame.index, columns=frame.columns)
 
 
 def ensure_datetime_column(df: pd.DataFrame, column: str = "DATE") -> pd.DataFrame:

@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from bt.algos.weighting import (
+    ExposureMatching,
     LimitBenchmarkDeviation,
     LimitDeltas,
     LimitWeights,
@@ -210,3 +211,32 @@ def test_limit_benchmark_deviation_uses_last_day_benchmark_row():
     assert LimitBenchmarkDeviation(0.1, "benchmark_wide")(strategy)
     assert strategy.temp["weights"]["A"] == pytest.approx(0.8)
     assert strategy.temp["weights"]["B"] == pytest.approx(0.2)
+
+
+def test_exposure_matching_writes_benchmark_relative_weights():
+    prices = _prices(A=[100.0], B=[100.0])
+    strategy = _strategy_context(prices, now_idx=0)
+    strategy.temp["selected"] = ["A", "B"]
+    strategy.temp["momentum"] = pd.Series({"A": 1.0, "B": -1.0})
+    strategy.temp["benchmark_weights"] = pd.Series({"A": 0.5, "B": 0.5})
+    strategy.temp["factor_exposures"] = pd.DataFrame(
+        {"MKT": [1.0, -1.0]},
+        index=["A", "B"],
+    )
+    strategy.temp["factor_covariance"] = pd.DataFrame(
+        [[0.09]],
+        index=["MKT"],
+        columns=["MKT"],
+    )
+
+    algo = ExposureMatching(
+        lambda_factor=0.2,
+        stat_key="momentum",
+        active_bound=0.25,
+    )
+    assert algo(strategy)
+    assert sum(strategy.temp["weights"].values()) == pytest.approx(1.0)
+    assert strategy.temp["weights"]["A"] > strategy.temp["weights"]["B"]
+    assert algo.allocation_history.loc[prices.index[0], "A"] == pytest.approx(
+        strategy.temp["weights"]["A"]
+    )

@@ -3,6 +3,8 @@ import numpy as np
 import pytest
 
 from utils.dataframe_utils import (
+    coerce_numeric_frame,
+    coerce_numeric_series,
     convert_columns_to_numeric,
     df_to_dict,
     normalize_columns,
@@ -69,6 +71,42 @@ def test_column_with_none_values():
     result = convert_columns_to_numeric(df.copy())
 
     assert result["A"].dtype.kind in "if"
+
+
+def test_coerce_numeric_series_converts_to_float_series():
+    series = pd.Series(["1", 2, 3.5], index=["a", "b", "c"])
+
+    result = coerce_numeric_series(series, "Test", "values")
+
+    expected = pd.Series([1.0, 2.0, 3.5], index=["a", "b", "c"], dtype=float)
+    pd.testing.assert_series_equal(result, expected)
+
+
+def test_coerce_numeric_series_rejects_missing_or_non_numeric_values():
+    series = pd.Series(["1", "bad"])
+
+    with pytest.raises(
+        ValueError, match="Test `values` contains missing or non-numeric values"
+    ):
+        coerce_numeric_series(series, "Test", "values")
+
+
+def test_coerce_numeric_frame_converts_to_float_frame():
+    frame = pd.DataFrame({"A": ["1", 2], "B": [3.5, "4"]}, index=["x", "y"])
+
+    result = coerce_numeric_frame(frame, "Test", "matrix")
+
+    expected = pd.DataFrame({"A": [1.0, 2.0], "B": [3.5, 4.0]}, index=["x", "y"])
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_coerce_numeric_frame_rejects_non_finite_values():
+    frame = pd.DataFrame({"A": [1.0, np.inf]})
+
+    with pytest.raises(
+        ValueError, match="Test `matrix` must contain only finite values"
+    ):
+        coerce_numeric_frame(frame, "Test", "matrix")
 
 
 def test_empty_dataframe():

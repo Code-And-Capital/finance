@@ -23,9 +23,10 @@ class TotalReturn(Factor):
         self,
         lookback: pd.DateOffset = pd.DateOffset(months=3),
         lag: pd.DateOffset = pd.DateOffset(days=0),
+        standardize: bool = False,
     ) -> None:
         """Initialize total-return statistic algo."""
-        super().__init__(factor_key="total_return")
+        super().__init__(factor_key="total_return", standardize=standardize)
         if not isinstance(lookback, pd.DateOffset):
             raise TypeError("TotalReturn `lookback` must be a pandas.DateOffset.")
         if not isinstance(lag, pd.DateOffset):
