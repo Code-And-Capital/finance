@@ -4,6 +4,7 @@ from .analyst_recommendations_data import (
     AnalystRecommendationsData,
     AnalystUpgradesDowngradesData,
 )
+from .fred_data import FredData
 from .financial_data import (
     EPSRevisionsData,
     EarningsSurprisesData,
@@ -28,6 +29,7 @@ __all__ = [
     "EstimatesData",
     "EarningsSurprisesData",
     "FinancialData",
+    "FredData",
     "InstitutionalHolders",
     "InsiderTransactionsData",
     "InfoData",

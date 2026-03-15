@@ -5,6 +5,7 @@ from connectors.selenium_data_source import (
 )
 from connectors.sqlite_data_source import SQLiteDataSource, default_sqlite_data_source
 from connectors.xls_data_source import XLSDataSource, default_xls_data_source
+from connectors.fred_data_source import FredDataClient
 from connectors.yahoo_data_source import YahooDataClient
 from connectors.open_figi_data_source import (
     OpenFigiDataSource,
@@ -20,6 +21,7 @@ __all__ = [
     "default_sqlite_data_source",
     "XLSDataSource",
     "default_xls_data_source",
+    "FredDataClient",
     "YahooDataClient",
     "OpenFigiDataSource",
     "default_open_figi_data_source",

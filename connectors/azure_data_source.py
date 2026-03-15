@@ -310,6 +310,8 @@ class AzureDataSource:
         dtype_overrides: dict[str, TypeEngine] | None = None,
         index_query: str | None = None,
         align_missing_to_table: bool = True,
+        validation_ticker_column: str = "TICKER",
+        validation_date_column: str = "DATE",
         engine: Engine | None = None,
     ) -> None:
         """Write a DataFrame into an Azure SQL table.
@@ -332,6 +334,10 @@ class AzureDataSource:
             Optional SQL statement executed after overwrite.
         align_missing_to_table
             Align append payload columns to existing table columns.
+        validation_ticker_column
+            Column used for post-write query validation ticker filtering.
+        validation_date_column
+            Column used for post-write query validation date filtering.
         engine
             Optional one-off engine override.
         """
@@ -398,6 +404,8 @@ class AzureDataSource:
                 table_name=table_name,
                 df=out,
                 engine=resolved_engine,
+                ticker_column=validation_ticker_column,
+                date_column=validation_date_column,
             )
             return
 
@@ -415,6 +423,8 @@ class AzureDataSource:
             table_name=table_name,
             df=out,
             engine=resolved_engine,
+            ticker_column=validation_ticker_column,
+            date_column=validation_date_column,
         )
 
     def read_sql_table(

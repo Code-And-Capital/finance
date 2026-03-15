@@ -5,6 +5,7 @@ from handyman.analyst_recommendations import (
     get_analyst_upgrades_downgrades,
 )
 from handyman.company_info import get_company_info, get_officers, get_security_master
+from handyman.economic_data import get_economic_data, get_economic_metadata
 from handyman.fundamentals import (
     get_earnings_surprises,
     get_eps_estimates,
@@ -21,6 +22,8 @@ from handyman.prices import get_analyst_price_targets, get_prices
 
 __all__ = [
     "get_company_info",
+    "get_economic_data",
+    "get_economic_metadata",
     "get_analyst_recommendations",
     "get_analyst_upgrades_downgrades",
     "get_earnings_surprises",
